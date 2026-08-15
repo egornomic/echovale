@@ -190,7 +190,7 @@
   text-align: center;
 }
 
-.section-empty svg {
+.section-empty > svg {
   margin-bottom: 9px;
   color: var(--accent);
 }
