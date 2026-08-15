@@ -2,6 +2,7 @@ import { JSDOM } from "jsdom";
 import parseSrcset from "parse-srcset";
 import sanitizeHtml from "sanitize-html";
 import { isTelegramPostUrl } from "../shared/telegram.js";
+import { nitterPostId } from "../shared/x.js";
 
 const TABLE_SCROLL_CLASS = "article-table-scroll";
 const QUOTE_FIGURE_CLASS = "article-quote";
@@ -135,6 +136,7 @@ function enrichArticleStructure(html: string, baseUrl?: string): string {
 
   const fragment = JSDOM.fragment(html);
   const isTelegramArticle = baseUrl ? isTelegramPostUrl(baseUrl) : false;
+  const isNitterArticle = nitterPostId(baseUrl) !== null;
   for (const blockquote of fragment.querySelectorAll("blockquote")) {
     for (const marker of blockquote.querySelectorAll(`:scope > span.${QUOTE_MARK_CLASS}`)) {
       marker.remove();
@@ -146,10 +148,14 @@ function enrichArticleStructure(html: string, baseUrl?: string): string {
     const hasParagraphStructure =
       directChildren.length > 0 && directChildren.every((child) => child.tagName === "P");
     const isQuotedTextOnly = directChildren.length === 0 && /^[“"]/.test(text);
+    const nitterQuoteSource = isNitterArticle
+      ? blockquote.querySelector(":scope > footer cite a[href]")?.getAttribute("href")
+      : null;
+    const isNitterQuote = nitterPostId(nitterQuoteSource) !== null;
     const isProseQuote =
       text.length > 0 &&
-      (hasParagraphStructure || isQuotedTextOnly || isTelegramArticle) &&
-      !blockquote.querySelector(COMPLEX_QUOTE_CONTENT) &&
+      (hasParagraphStructure || isQuotedTextOnly || isTelegramArticle || isNitterQuote) &&
+      (isNitterQuote || !blockquote.querySelector(COMPLEX_QUOTE_CONTENT)) &&
       !CALLOUT_PREFIX_PATTERN.test(text);
     if (isProseQuote) {
       blockquote.classList.add(PROSE_QUOTE_CLASS);

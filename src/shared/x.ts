@@ -49,8 +49,17 @@ export function nitterVideoPostId(
     : null;
 }
 
-export function withoutNitterVideoPreview(html: string, postId: string): string {
+export function nitterVideoPlaceholderId(articleId: number): string {
+  return `article-${articleId}-x-video`;
+}
+
+export function withNitterVideoPlaceholder(
+  html: string,
+  postId: string,
+  articleId: number,
+): string {
+  const placeholder = `<div id="${nitterVideoPlaceholderId(articleId)}"></div>`;
   return html.replace(ANCHOR, (anchor, _quote: string, href: string) =>
-    nitterPostId(href) === postId && isVideoAnchor(anchor) ? "" : anchor,
+    nitterPostId(href) === postId && isVideoAnchor(anchor) ? placeholder : anchor,
   );
 }

@@ -331,7 +331,8 @@ Return only the summary in plain text.`,
          '2026-07-13T00:00:00.000Z', NULL, NULL, NULL, 'failed', 'Extraction failed'),
         (5, 2, 'social-post', 'The complete social post body',
          'https://nitter.net/person/status/5', '2026-07-13T00:00:00.000Z',
-         '<p>The complete social post body</p>', NULL, 'feed', 'feed', NULL);
+         '<p>The complete social post body</p><blockquote><b>Quoted (@quoted)</b><p>Quoted post</p><footer>— <cite><a href="https://nitter.net/quoted/status/4#m">source post</a></cite></footer></blockquote>',
+         NULL, 'feed', 'feed', NULL);
       UPDATE articles SET is_starred = 1 WHERE id = 3;
 
       CREATE TABLE rules (
@@ -516,6 +517,9 @@ Return only the summary in plain text.`,
           .all(),
       ).toEqual(["ai_credentials", "ai_feature_settings"]);
       expect(database.articles.getArticle(1, 5)?.title).toBe("");
+      expect(database.articles.getArticle(1, 5)?.feedContentHtml).toContain(
+        'class="article-prose-quote article-prose-quote-marked"',
+      );
       expect(
         database.connection
           .prepare("SELECT etag, last_modified AS lastModified FROM feeds WHERE id = 2")
@@ -526,7 +530,7 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        31,
+        32,
       );
       expect(
         database.connection.prepare("SELECT starred_at FROM articles WHERE id = 3").pluck().get(),
@@ -579,7 +583,7 @@ Return only the summary in plain text.`,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        31,
+        32,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

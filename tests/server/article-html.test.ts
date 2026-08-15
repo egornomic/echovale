@@ -135,6 +135,46 @@ native dev
     );
   });
 
+  it("renders Nitter quoted posts with the prose quote treatment", () => {
+    const source = `<p>Truth btw</p>
+      <hr>
+      <blockquote>
+        <b>Barter (@BarterDeFi)</b>
+        <p>But we at Barter are disappointed that the best thing Uniswap chose to put its effort into is a meme launchpad.<br>
+        The market's largest shifts came from durable primitives: Bitcoin, Ethereum, Binance, Solana.<br>
+        Not from people getting burned and scammed.</p>
+        <video poster="/pic/tweet_video_thumb%2FHPhpv0WagAAaEYO.jpg" autoplay muted loop>
+          <source src="/pic/video.twimg.com%2Ftweet_video%2FHPhpv0WagAAaEYO.mp4" type="video/mp4">
+        </video>
+        <footer>— <cite><a href="https://nitter.net/BarterDeFi/status/2087534708154675323#m">source post</a></cite></footer>
+      </blockquote>`;
+    const nitterUrl = "https://nitter.net/newmichwill/status/2087539154447999314#m";
+    const html = cleanArticleHtml(source, nitterUrl);
+    const quote = articleBody(html).querySelector("blockquote");
+
+    expect(quote?.className).toBe("article-prose-quote article-prose-quote-marked");
+    expect(quote?.querySelector(":scope > .article-quote-mark")).toMatchObject({
+      ariaHidden: "true",
+      textContent: "“",
+    });
+    expect(quote?.querySelector(":scope > b")?.textContent).toBe("Barter (@BarterDeFi)");
+    expect(quote?.querySelector("video source")).toMatchObject({
+      src: "https://nitter.net/pic/video.twimg.com%2Ftweet_video%2FHPhpv0WagAAaEYO.mp4",
+      type: "video/mp4",
+    });
+    expect(quote?.querySelector("footer a")).toMatchObject({
+      href: "https://nitter.net/BarterDeFi/status/2087534708154675323#m",
+      target: "_blank",
+    });
+    expect(cleanArticleHtml(html, nitterUrl)).toBe(html);
+
+    const genericQuote = articleBody(
+      cleanArticleHtml(source, "https://example.test/article"),
+    ).querySelector("blockquote");
+    expect(genericQuote?.className).toBe("");
+    expect(genericQuote?.querySelector(".article-quote-mark")).toBeNull();
+  });
+
   it("keeps commas inside responsive image URLs while resolving relative candidates", () => {
     const webpCandidate =
       "https://substackcdn.com/image/fetch/$s_!token!,w_424,c_limit,f_webp,q_auto:good/https%3A%2F%2Fmedia.example%2Fhero.png";

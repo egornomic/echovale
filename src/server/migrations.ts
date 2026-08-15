@@ -848,6 +848,10 @@ const migrations: Migration[] = [
       CREATE INDEX articles_starred_at_idx ON articles(is_starred, starred_at DESC);
     `,
   },
+  {
+    sql: "",
+    after: (database) => recleanStructuredArticleHtml(database, ["blockquote"]),
+  },
 ];
 
 export function migrateDatabase(

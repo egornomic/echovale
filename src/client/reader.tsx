@@ -49,7 +49,12 @@ import type {
   TelegramArticleMedia,
   XArticleMedia,
 } from "../shared/types";
-import { nitterVideoPostId, withoutNitterVideoPreview } from "../shared/x";
+import {
+  nitterPostId,
+  nitterVideoPlaceholderId,
+  nitterVideoPostId,
+  withNitterVideoPlaceholder,
+} from "../shared/x";
 import { AiMarkdown } from "./ai-markdown";
 import { api, appUrl, errorMessage } from "./api";
 import { articleContentView, shouldShowArticleDescription } from "./article-content";
@@ -2456,6 +2461,11 @@ function ArticleBody({
     ? translationState.translation
     : null;
   const translationVisible = Boolean(translationState.visible && translation);
+  const contentView = articleContentView(article, fullContentVisible);
+  const xVideoTargetId =
+    xPostId && contentView !== "full" && !translationVisible
+      ? nitterVideoPlaceholderId(article.id)
+      : null;
 
   return (
     <>
@@ -2490,7 +2500,7 @@ function ArticleBody({
         ) : null}
       </div>
       {telegramPostIdentity(article.url) ? <TelegramPostMedia article={article} /> : null}
-      {xPostId ? <XPostVideo article={article} postId={xPostId} /> : null}
+      {xPostId ? <XPostVideo article={article} postId={xPostId} targetId={xVideoTargetId} /> : null}
     </>
   );
 }
@@ -2500,8 +2510,17 @@ type XMediaViewState =
   | { status: "ready"; media: XArticleMedia }
   | { status: "error"; message: string };
 
-function XPostVideo({ article, postId }: { article: Article; postId: string }) {
+function XPostVideo({
+  article,
+  postId,
+  targetId,
+}: {
+  article: Article;
+  postId: string;
+  targetId: string | null;
+}) {
   const [state, setState] = useState<XMediaViewState>({ status: "loading" });
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const requestController = useRef<AbortController | null>(null);
 
   const loadMedia = useCallback(() => {
@@ -2524,9 +2543,14 @@ function XPostVideo({ article, postId }: { article: Article; postId: string }) {
     return () => requestController.current?.abort();
   }, [loadMedia]);
 
+  useLayoutEffect(() => {
+    setPortalTarget(targetId && article.feedContentHtml ? document.getElementById(targetId) : null);
+  }, [article.feedContentHtml, targetId]);
+
   if (state.status === "loading") return null;
+  const isQuotedPostVideo = nitterPostId(article.url) !== postId;
   if (state.status === "error") {
-    return (
+    const error = (
       <div className="x-media-state x-media-error" role="alert">
         <AlertTriangle aria-hidden="true" size={16} />
         <span>{state.message}</span>
@@ -2538,21 +2562,27 @@ function XPostVideo({ article, postId }: { article: Article; postId: string }) {
         </a>
       </div>
     );
+    return portalTarget ? createPortal(error, portalTarget) : error;
   }
 
-  return (
+  const video = (
     // biome-ignore lint/a11y/useMediaCaption: X's public media metadata does not expose caption tracks.
     <video
       className="x-video-player"
       src={articleImageUrl(state.media.sourceUrl)}
       poster={state.media.posterUrl ? articleImageUrl(state.media.posterUrl) : undefined}
-      aria-label={`X video from ${article.author ?? "this post"}`}
+      aria-label={
+        isQuotedPostVideo
+          ? "X video from quoted post"
+          : `X video from ${article.author ?? "this post"}`
+      }
       style={state.media.aspectRatio ? { aspectRatio: state.media.aspectRatio } : undefined}
       controls
       playsInline
       preload="metadata"
     />
   );
+  return portalTarget ? createPortal(video, portalTarget) : video;
 }
 
 type TelegramMediaViewState =
@@ -2770,7 +2800,7 @@ function FeedArticleText({
   if (article.feedContentHtml) {
     const xPostId = nitterVideoPostId(article.url, article.feedContentHtml);
     const html = xPostId
-      ? withoutNitterVideoPreview(article.feedContentHtml, xPostId)
+      ? withNitterVideoPlaceholder(article.feedContentHtml, xPostId, article.id)
       : article.feedContentHtml;
     return <ArticleHtml sanitizedHtml={html} />;
   }
