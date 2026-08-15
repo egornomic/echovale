@@ -3879,14 +3879,9 @@ kbd {
 
 .inline-state > svg {
   display: inline-flex;
-  width: 48px;
-  height: 48px;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  width: 40px;
+  height: 40px;
+  margin-bottom: 16px;
   color: var(--accent);
 }
 
@@ -3928,6 +3923,11 @@ kbd {
 }
 
 .error-state > svg {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--danger);
 }
 

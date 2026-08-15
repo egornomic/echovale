@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BookOpen,
   BookOpenText,
+  CheckCheck,
   CheckCircle2,
   ChevronDown,
   Circle,
@@ -22,6 +23,7 @@ import {
   MessageSquareText,
   RefreshCw,
   Rss,
+  SearchX,
   Sparkles,
   Star,
 } from "lucide-react";
@@ -624,7 +626,7 @@ export function EmptyArticles({
   if (!hasFeeds) {
     return (
       <section className="inline-state empty-state">
-        <Rss aria-hidden="true" size={24} />
+        <Rss aria-hidden="true" size={40} strokeWidth={1.7} />
         <h2>Add your first feed</h2>
         <p>Enter a website or feed URL, or import subscriptions from an OPML file.</p>
         <button className="primary-button" type="button" onClick={onAddFeed}>
@@ -636,7 +638,7 @@ export function EmptyArticles({
   if (search) {
     return (
       <section className="inline-state empty-state">
-        <FileText aria-hidden="true" size={24} />
+        <SearchX aria-hidden="true" size={40} strokeWidth={1.7} />
         <h2>No articles match “{search}”</h2>
         <p>Use a shorter phrase, or clear the search to show this queue again.</p>
         <button className="secondary-button" type="button" onClick={onClearSearch}>
@@ -648,7 +650,7 @@ export function EmptyArticles({
   if (state === "unread") {
     return (
       <section className="inline-state empty-state">
-        <CheckCircle2 aria-hidden="true" size={24} />
+        <CheckCheck aria-hidden="true" size={40} strokeWidth={1.7} />
         <h2>No unread articles</h2>
         <p>New articles will appear after a scheduled or manual refresh.</p>
         <button className="secondary-button" type="button" onClick={onShowAll}>
@@ -659,7 +661,7 @@ export function EmptyArticles({
   }
   return (
     <section className="inline-state empty-state">
-      <Inbox aria-hidden="true" size={24} />
+      <Inbox aria-hidden="true" size={40} strokeWidth={1.7} />
       <h2>No articles in this view</h2>
       <p>Choose another feed or article state.</p>
       <button className="secondary-button" type="button" onClick={onShowAll}>
