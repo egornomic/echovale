@@ -11,6 +11,7 @@ import {
 import { toast as showToast } from "sonner";
 import type {
   Article,
+  ArticleState,
   BootstrapData,
   Feed,
   Folder as FolderType,
@@ -347,7 +348,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
   }, [route.route]);
 
   const selectScope = useCallback(
-    (feedId: number | null, folderId: number | null, state = route.readerRoute.state) => {
+    (feedId: number | null, folderId: number | null, state: ArticleState = "unread") => {
       const nextRoute = readerRouteForSelection(state, feedId, folderId, route.readerRoute.search);
       const reloadArticles = appRoutePath(route.current()) === appRoutePath(nextRoute);
       queue.invalidate();
