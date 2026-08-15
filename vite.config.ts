@@ -106,9 +106,9 @@ export default defineConfig({
             icons: [{ src: appUrl("/icons/pwa-192.png"), sizes: "192x192" }],
           },
           {
-            name: "Starred articles",
-            short_name: "Starred",
-            url: appUrl("/articles/starred"),
+            name: "Saved articles",
+            short_name: "Saved",
+            url: appUrl("/articles/saved"),
             icons: [{ src: appUrl("/icons/pwa-192.png"), sizes: "192x192" }],
           },
         ],

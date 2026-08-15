@@ -22,7 +22,7 @@ describe("application routes", () => {
     [{ kind: "settings" }, "/settings"],
     [
       { kind: "reader", scope: "all", scopeId: null, state: "starred", search: "" },
-      "/articles/starred",
+      "/articles/saved",
     ],
     [
       { kind: "reader", scope: "folder", scopeId: 42, state: "read", search: "sqlite wal" },
@@ -41,6 +41,14 @@ describe("application routes", () => {
     expect(parseAppRoute("/articles/0", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
     expect(parseAppRoute("/folders/nope/all", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
     expect(parseAppRoute("/another-app/settings", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
+  });
+
+  it.each([
+    "/articles/starred",
+    "/feeds/7/starred",
+    "/folders/42/starred",
+  ])("rejects the legacy Starred route %s", (path) => {
+    expect(parseAppRoute(path, "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
   });
 
   it("keeps submitted search only on collection routes", () => {

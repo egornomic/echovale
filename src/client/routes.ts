@@ -1,7 +1,5 @@
 import type { ArticleState } from "../shared/types.js";
 
-const ARTICLE_STATES = new Set<ArticleState>(["unread", "all", "read", "starred"]);
-
 export interface ReaderRoute {
   kind: "reader";
   scope: "all" | "feed" | "folder";
@@ -46,7 +44,13 @@ function positiveId(segment: string | undefined): number | null {
 }
 
 function articleState(segment: string | undefined): ArticleState | null {
-  return segment && ARTICLE_STATES.has(segment as ArticleState) ? (segment as ArticleState) : null;
+  if (segment === "saved") return "starred";
+  if (segment === "unread" || segment === "all" || segment === "read") return segment;
+  return null;
+}
+
+function articleStateSegment(state: ArticleState): string {
+  return state === "starred" ? "saved" : state;
 }
 
 function readerRoute(
@@ -109,10 +113,11 @@ export function appRoutePath(route: AppRoute): string {
   }
   if (route.kind !== "reader") return `/${route.kind}`;
 
+  const stateSegment = articleStateSegment(route.state);
   const path =
     route.scope === "all"
-      ? `/articles/${route.state}`
-      : `/${route.scope === "feed" ? "feeds" : "folders"}/${route.scopeId}/${route.state}`;
+      ? `/articles/${stateSegment}`
+      : `/${route.scope === "feed" ? "feeds" : "folders"}/${route.scopeId}/${stateSegment}`;
   const query = new URLSearchParams();
   if (route.search.trim()) query.set("q", route.search.trim());
   const queryString = query.toString();
