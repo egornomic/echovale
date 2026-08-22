@@ -62,16 +62,31 @@
   --control-height: 38px;
   --paper-image: url("/textures/pressed-paper-dark.webp");
   --paper-size: 720px 720px;
-  --paper-blend: soft-light;
-  --paper-canvas: var(--paper-image) center / var(--paper-size) repeat var(--bg);
-  --paper-canvas-translucent:
-    var(--paper-image) center / var(--paper-size) repeat
-    color-mix(in srgb, var(--bg) 96%, transparent);
-  --paper-sidebar: var(--paper-image) center / var(--paper-size) repeat var(--sidebar);
-  --paper-surface: var(--paper-image) center / var(--paper-size) repeat var(--surface);
-  --paper-raised: var(--paper-image) center / var(--paper-size) repeat var(--surface-raised);
+  --paper-blend: normal;
+  --paper-tint-opacity: 90%;
+  --paper-canvas-tint: color-mix(in srgb, var(--bg) var(--paper-tint-opacity), transparent);
+  --paper-sidebar-tint: color-mix(in srgb, var(--sidebar) var(--paper-tint-opacity), transparent);
+  --paper-surface-tint: color-mix(in srgb, var(--surface) var(--paper-tint-opacity), transparent);
+  --paper-raised-tint: color-mix(
+    in srgb,
+    var(--surface-raised) var(--paper-tint-opacity),
+    transparent
+  );
+  --paper-canvas:
+    linear-gradient(var(--paper-canvas-tint), var(--paper-canvas-tint)),
+    var(--paper-image) center / var(--paper-size) repeat var(--bg);
+  --paper-canvas-translucent: color-mix(in srgb, var(--bg) 96%, transparent);
+  --paper-sidebar:
+    linear-gradient(var(--paper-sidebar-tint), var(--paper-sidebar-tint)),
+    var(--paper-image) center / var(--paper-size) repeat var(--sidebar);
+  --paper-surface:
+    linear-gradient(var(--paper-surface-tint), var(--paper-surface-tint)),
+    var(--paper-image) center / var(--paper-size) repeat var(--surface);
+  --paper-raised:
+    linear-gradient(var(--paper-raised-tint), var(--paper-raised-tint)),
+    var(--paper-image) center / var(--paper-size) repeat var(--surface-raised);
   --menu-surface: color-mix(in srgb, var(--surface-raised) 94%, transparent);
-  --paper-menu: var(--paper-image) center / var(--paper-size) repeat var(--menu-surface);
+  --paper-menu: var(--menu-surface);
   --menu-shadow: 0 8px 24px oklch(0 0 0 / 0.32);
   --menu-radius: var(--radius-md);
   --menu-padding: 6px;
@@ -117,7 +132,7 @@
   --focus: oklch(0.48 0.14 130);
   --menu-shadow: 0 8px 24px oklch(0 0 0 / 0.16);
   --paper-image: url("/textures/pressed-paper-light.webp");
-  --paper-blend: multiply;
+  --paper-tint-opacity: 0%;
 }
 
 *,
