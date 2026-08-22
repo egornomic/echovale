@@ -198,16 +198,16 @@ export function createDemoData(now = new Date()): DemoData {
     {
       id: DEMO_RELEASE_ARTICLE_ID,
       feedId: 8,
-      title: "feedfold 0.4.2",
-      url: "https://github.com/egornomic/feedfold/releases/tag/v0.4.2",
+      title: "feedfold 0.4.3",
+      url: "https://github.com/egornomic/feedfold/releases/tag/v0.4.3",
       author: "egornomic",
-      publishedAt: "2026-08-14T18:23:32.000Z",
+      publishedAt: "2026-08-22T13:08:01.000Z",
       summary:
-        "Try feedfold in the browser, organize subscriptions with drag and drop, and add GitHub activity feeds directly.",
+        "Read quoted Nitter posts in context, reopen saved-article links reliably, and move between feeds with less friction.",
       contentHtml: `<ul>
-<li>Try feedfold in a fully interactive browser demo at feedfold.com.</li>
-<li>Organize subscriptions by dragging feeds between folders.</li>
-<li>Add GitHub activity feeds directly from profile, release, tag, or commit pages.</li>
+<li>Quoted Nitter posts now have a distinct treatment, with quoted videos kept in the right place.</li>
+<li>Saved-article links now reopen the saved view reliably.</li>
+<li>Choosing a feed or folder now starts with its unread articles.</li>
 </ul>`,
       isStarred: true,
     },

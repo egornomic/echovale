@@ -65,17 +65,17 @@ describe("static demo data", () => {
     });
     expect(store.articles({ state: "all", feedId: releaseFeed?.id }).articles).toMatchObject([
       {
-        title: "feedfold 0.4.2",
-        url: "https://github.com/egornomic/feedfold/releases/tag/v0.4.2",
+        title: "feedfold 0.4.3",
+        url: "https://github.com/egornomic/feedfold/releases/tag/v0.4.3",
         author: "egornomic",
-        publishedAt: "2026-08-14T18:23:32.000Z",
+        publishedAt: "2026-08-22T13:08:01.000Z",
         isStarred: true,
       },
     ]);
 
     for (const state of ["all", "unread", "starred"] as const) {
       expect(store.articles({ state }).articles[0]?.url).toBe(
-        "https://github.com/egornomic/feedfold/releases/tag/v0.4.2",
+        "https://github.com/egornomic/feedfold/releases/tag/v0.4.3",
       );
     }
   });
