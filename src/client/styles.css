@@ -4021,7 +4021,7 @@ kbd {
 .pwa-update {
   position: fixed;
   right: 18px;
-  bottom: 68px;
+  bottom: calc(68px + env(safe-area-inset-bottom));
   z-index: var(--z-toast);
   display: flex;
   max-width: min(430px, calc(100vw - 36px));
@@ -4182,10 +4182,19 @@ kbd {
   .app-shell {
     grid-template-columns: 1fr;
   }
+  .main-column {
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-left: env(safe-area-inset-left);
+  }
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
     width: min(300px, calc(100vw - 42px));
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
     transform: translateX(-102%);
     transition: transform 170ms var(--ease-out);
   }
@@ -4534,7 +4543,9 @@ kbd {
     position: fixed;
     inset: auto 0 0;
     z-index: 6;
+    padding-right: env(safe-area-inset-right);
     padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
     border-top: 1px solid var(--border);
     border-bottom: 0;
     background: var(--paper-surface);
