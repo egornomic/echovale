@@ -1,19 +1,13 @@
 import { JSDOM } from "jsdom";
 import parseSrcset from "parse-srcset";
 import sanitizeHtml from "sanitize-html";
-import { isTelegramPostUrl } from "../shared/telegram.js";
-import { nitterPostId } from "../shared/x.js";
 
 const TABLE_SCROLL_CLASS = "article-table-scroll";
 const QUOTE_FIGURE_CLASS = "article-quote";
-const PROSE_QUOTE_CLASS = "article-prose-quote";
 const PROSE_QUOTE_MARKED_CLASS = "article-prose-quote-marked";
 const QUOTE_MARK_CLASS = "article-quote-mark";
 const SCROLLABLE_TABLE_LABEL = "Scrollable table";
-const CALLOUT_PREFIX_PATTERN =
-  /^(?:\[\s*!\s*(?:note|tip|warning|important|caution)\s*\]|(?:a|side)\s+note\b|(?:note|tip|warning|important|caution|abstract|source|failsafe|disclaimer|reminder|update|takeaway|summary)\b|system\s+message\b|table\s+of\s+contents\b|bottom\s+line\b|tl\s*;\s*dr\b)/i;
-const COMPLEX_QUOTE_CONTENT =
-  "blockquote, pre, code, ul, ol, dl, table, img, picture, video, audio, iframe, h1, h2, h3, h4, h5, h6, div";
+const SOURCE_OPENING_QUOTE_PATTERN = /^[“"„«‹]/;
 
 function fragmentHtml(fragment: DocumentFragment): string {
   const container = fragment.ownerDocument.createElement("div");
@@ -115,7 +109,7 @@ const sanitizeOptions: sanitizeHtml.IOptions = {
   allowProtocolRelative: false,
 };
 
-function stripGeneratedQuoteMarkers(html: string): string {
+export function removeGeneratedArticleQuoteMarkers(html: string): string {
   if (!html.includes(QUOTE_MARK_CLASS)) return html;
 
   const fragment = JSDOM.fragment(html);
@@ -131,42 +125,19 @@ function stripGeneratedQuoteMarkers(html: string): string {
   return fragmentHtml(fragment);
 }
 
-function enrichArticleStructure(html: string, baseUrl?: string): string {
+function enrichArticleStructure(html: string): string {
   if (!/<(?:blockquote|table)\b/i.test(html)) return html;
 
   const fragment = JSDOM.fragment(html);
-  const isTelegramArticle = baseUrl ? isTelegramPostUrl(baseUrl) : false;
-  const isNitterArticle = nitterPostId(baseUrl) !== null;
   for (const blockquote of fragment.querySelectorAll("blockquote")) {
-    for (const marker of blockquote.querySelectorAll(`:scope > span.${QUOTE_MARK_CLASS}`)) {
-      marker.remove();
-    }
-    blockquote.classList.remove(PROSE_QUOTE_CLASS, PROSE_QUOTE_MARKED_CLASS);
-
     const text = (blockquote.textContent ?? "").replace(/\s+/g, " ").trim();
-    const directChildren = [...blockquote.children];
-    const hasParagraphStructure =
-      directChildren.length > 0 && directChildren.every((child) => child.tagName === "P");
-    const isQuotedTextOnly = directChildren.length === 0 && /^[“"]/.test(text);
-    const nitterQuoteSource = isNitterArticle
-      ? blockquote.querySelector(":scope > footer cite a[href]")?.getAttribute("href")
-      : null;
-    const isNitterQuote = nitterPostId(nitterQuoteSource) !== null;
-    const isProseQuote =
-      text.length > 0 &&
-      (hasParagraphStructure || isQuotedTextOnly || isTelegramArticle || isNitterQuote) &&
-      (isNitterQuote || !blockquote.querySelector(COMPLEX_QUOTE_CONTENT)) &&
-      !CALLOUT_PREFIX_PATTERN.test(text);
-    if (isProseQuote) {
-      blockquote.classList.add(PROSE_QUOTE_CLASS);
-      if (!/^[“"]/.test(text)) {
-        blockquote.classList.add(PROSE_QUOTE_MARKED_CLASS);
-        const marker = fragment.ownerDocument.createElement("span");
-        marker.className = QUOTE_MARK_CLASS;
-        marker.setAttribute("aria-hidden", "true");
-        marker.textContent = "“";
-        blockquote.prepend(marker);
-      }
+    if (text && !SOURCE_OPENING_QUOTE_PATTERN.test(text)) {
+      blockquote.classList.add(PROSE_QUOTE_MARKED_CLASS);
+      const marker = fragment.ownerDocument.createElement("span");
+      marker.className = QUOTE_MARK_CLASS;
+      marker.setAttribute("aria-hidden", "true");
+      marker.textContent = "“";
+      blockquote.prepend(marker);
     }
 
     const attribution = blockquote.nextElementSibling;
@@ -316,9 +287,9 @@ export function cleanArticleHtml(html: string, baseUrl?: string): string {
         }),
       }
     : undefined;
-  const sanitized = sanitizeHtml(stripGeneratedQuoteMarkers(html), {
+  const sanitized = sanitizeHtml(removeGeneratedArticleQuoteMarkers(html), {
     ...sanitizeOptions,
     transformTags,
   }).trim();
-  return enrichArticleStructure(sanitized, baseUrl);
+  return enrichArticleStructure(sanitized);
 }

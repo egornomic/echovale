@@ -3577,23 +3577,13 @@ kbd {
 }
 
 .article-content blockquote {
-  margin: 1.55em 0;
-  padding: 1em 1.15em;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 1.02em;
-  line-height: 1.68;
-}
-
-.article-content blockquote.article-prose-quote {
   position: relative;
   margin: 1.7em 0;
   padding: 0.08em 0;
   border: 0;
   border-radius: 0;
   background: transparent;
+  color: var(--text);
   font-size: 1.04em;
   line-height: 1.7;
   text-wrap: pretty;
@@ -4656,7 +4646,7 @@ kbd {
   .article-summary-error {
     flex-wrap: wrap;
   }
-  .article-content blockquote.article-prose-quote {
+  .article-content blockquote {
     font-size: 1.02em;
   }
   .article-content blockquote.article-prose-quote-marked {

@@ -4,7 +4,11 @@ import {
   DEFAULT_ARTICLE_TRANSLATION_PROMPT,
   DEFAULT_FACTCHECK_PROMPT,
 } from "../shared/ai-prompts.js";
-import { cleanArticleHtml, removeStoredSrcsetsWithFallback } from "./article-html.js";
+import {
+  cleanArticleHtml,
+  removeGeneratedArticleQuoteMarkers,
+  removeStoredSrcsetsWithFallback,
+} from "./article-html.js";
 import { firstSafeImageUrl } from "./article-image.js";
 import { youtubeMediaFromUrl } from "./article-media.js";
 import { removeTelegramFeedImages } from "./telegram-feed.js";
@@ -37,6 +41,7 @@ function sqlString(value: string): string {
 function recleanStructuredArticleHtml(
   database: Sqlite.Database,
   tags: ArticleStructureTag[],
+  prepareHtml?: (html: string) => string,
 ): void {
   for (const column of ["feed_content_html", "content_html"] as const) {
     const structureCondition = tags.map((tag) => `${column} LIKE '%<${tag}%'`).join(" OR ");
@@ -57,7 +62,8 @@ function recleanStructuredArticleHtml(
       }>;
       if (rows.length === 0) break;
       for (const row of rows) {
-        update.run(cleanArticleHtml(row.html, row.url ?? undefined), row.id);
+        const html = prepareHtml ? prepareHtml(row.html) : row.html;
+        update.run(cleanArticleHtml(html, row.url ?? undefined), row.id);
       }
       lastId = rows.at(-1)?.id ?? lastId;
     }
@@ -847,6 +853,15 @@ const migrations: Migration[] = [
       DROP INDEX articles_starred_idx;
       CREATE INDEX articles_starred_at_idx ON articles(is_starred, starred_at DESC);
     `,
+  },
+  {
+    sql: "",
+    after: (database) => recleanStructuredArticleHtml(database, ["blockquote"]),
+  },
+  {
+    sql: "",
+    after: (database) =>
+      recleanStructuredArticleHtml(database, ["blockquote"], removeGeneratedArticleQuoteMarkers),
   },
   {
     sql: "",

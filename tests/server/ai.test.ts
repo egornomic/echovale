@@ -419,7 +419,7 @@ describe("AI article summaries", () => {
       contentHtml: null,
       feedContentHtml: `<p>Sales start: <a href="https://busy.app/" target="_blank" rel="noopener noreferrer">https://busy.app</a></p>
         <figure><img src="https://example.test/product.png" alt="Product"><figcaption>Product image.</figcaption></figure>
-        <blockquote class="article-prose-quote article-prose-quote-marked"><span class="article-quote-mark" aria-hidden="true">“</span><p><strong>Quoted claim.</strong> More context.</p></blockquote>`,
+        <blockquote class="article-prose-quote-marked"><span class="article-quote-mark" aria-hidden="true">“</span><p><strong>Quoted claim.</strong> More context.</p></blockquote>`,
       excerpt: "Fallback excerpt with https://example.test/story",
       currentSummary: null,
     };
@@ -448,9 +448,7 @@ describe("AI article summaries", () => {
       src: "https://example.test/product.png",
       alt: "Product",
     });
-    expect(body.querySelector("blockquote")?.className).toBe(
-      "article-prose-quote article-prose-quote-marked",
-    );
+    expect(body.querySelector("blockquote")?.className).toBe("article-prose-quote-marked");
     expect(body.querySelector(".article-quote-mark")).toMatchObject({
       textContent: "“",
       ariaHidden: "true",

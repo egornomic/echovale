@@ -16,6 +16,10 @@ import { removeSavedArticleTimestampMigration } from "./migration-fixtures.js";
 
 const directories: string[] = [];
 
+function articleBody(html: string): HTMLElement {
+  return new JSDOM(`<body>${html}</body>`).window.document.body;
+}
+
 afterEach(async () => {
   for (const directory of directories.splice(0)) {
     await rm(directory, { recursive: true, force: true });
@@ -23,6 +27,73 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("adds the standard quotation mark to stored blockquotes without duplicating punctuation", () => {
+    const database = new AppDatabase(":memory:");
+    try {
+      const feed = database.feeds.createFeed(1, {
+        title: "Quoted articles",
+        feedUrl: "https://example.test/quotes.xml",
+      });
+      database.feeds.completeRefresh(feed.id, {
+        httpStatus: 200,
+        etag: null,
+        lastModified: null,
+        parsed: {
+          title: "Quoted articles",
+          siteUrl: "https://example.test",
+          articles: [
+            {
+              externalId: "quoted-article",
+              title: "Quoted article",
+              url: "https://example.test/quoted-article",
+              author: null,
+              publishedAt: null,
+              summary: "Quoted claim.",
+              imageUrl: null,
+              feedContentHtml: "<blockquote><p>Quoted claim.</p></blockquote>",
+            },
+          ],
+        },
+      });
+      const articleId = database.articles.listArticles(1, { state: "all" })[0]?.id;
+      if (!articleId) throw new Error("Test article was not created");
+
+      database.connection
+        .prepare(
+          `UPDATE articles
+           SET feed_content_html = ?, content_html = ?, content_source = 'article',
+               extraction_status = 'complete'
+           WHERE id = ?`,
+        )
+        .run(
+          "<blockquote><p>Quoted claim.</p><ul><li>Structured detail.</li></ul></blockquote>",
+          "<blockquote><p>“Publisher punctuation.”</p></blockquote>",
+          articleId,
+        );
+      database.connection.prepare("DELETE FROM migrations WHERE version >= 34").run();
+
+      migrateDatabase(database.connection, 180);
+
+      const article = database.articles.getArticle(1, articleId);
+      const generatedQuote = articleBody(article?.feedContentHtml ?? "").querySelector(
+        "blockquote",
+      );
+      expect(generatedQuote?.className).toBe("article-prose-quote-marked");
+      expect(generatedQuote?.querySelector(":scope > .article-quote-mark")).toMatchObject({
+        ariaHidden: "true",
+        textContent: "“",
+      });
+      expect(generatedQuote?.querySelector("ul li")?.textContent).toBe("Structured detail.");
+
+      const publisherQuote = articleBody(article?.contentHtml ?? "").querySelector("blockquote");
+      expect(publisherQuote?.className).toBe("");
+      expect(publisherQuote?.querySelector(".article-quote-mark")).toBeNull();
+      expect(publisherQuote?.textContent).toBe("“Publisher punctuation.”");
+    } finally {
+      database.close();
+    }
+  });
+
   it("removes obsolete match thresholds from existing web feed selections", () => {
     const database = new AppDatabase(":memory:");
     try {
@@ -480,7 +551,7 @@ Return only the summary in plain text.`,
       for (const articleId of [2, 3]) {
         const article = database.articles.getArticle(1, articleId);
         const html = articleId === 2 ? article?.contentHtml : article?.feedContentHtml;
-        const body = new JSDOM(`<body>${html}</body>`).window.document.body;
+        const body = articleBody(html ?? "");
         expect(body.querySelectorAll("[srcset]")).toHaveLength(0);
         expect(body.querySelectorAll("source")).toHaveLength(0);
         expect(body.querySelector("img[src]")).not.toBeNull();
@@ -517,9 +588,7 @@ Return only the summary in plain text.`,
           .all(),
       ).toEqual(["ai_credentials", "ai_feature_settings"]);
       expect(database.articles.getArticle(1, 5)?.title).toBe("");
-      expect(database.articles.getArticle(1, 5)?.feedContentHtml).toContain(
-        'class="article-prose-quote article-prose-quote-marked"',
-      );
+      expect(database.articles.getArticle(1, 5)?.feedContentHtml).toContain("article-quote-mark");
       expect(
         database.connection
           .prepare("SELECT etag, last_modified AS lastModified FROM feeds WHERE id = 2")
@@ -530,7 +599,7 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        32,
+        34,
       );
       expect(
         database.connection.prepare("SELECT starred_at FROM articles WHERE id = 3").pluck().get(),
@@ -583,7 +652,7 @@ Return only the summary in plain text.`,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        32,
+        34,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

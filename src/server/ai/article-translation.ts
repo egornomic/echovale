@@ -78,11 +78,7 @@ function selectedSourceHtml(
 }
 
 function isUntranslatedElement(element: Element): boolean {
-  return (
-    UNTRANSLATED_ELEMENTS.has(element.tagName) ||
-    (element.getAttribute("aria-hidden") === "true" &&
-      element.classList.contains("article-quote-mark"))
-  );
+  return UNTRANSLATED_ELEMENTS.has(element.tagName);
 }
 
 function translationSegments(root: ParentNode): TranslationSegment[] {

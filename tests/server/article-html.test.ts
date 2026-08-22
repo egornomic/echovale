@@ -65,52 +65,47 @@ native dev
     expect(cleanedAgain.querySelectorAll("figure.article-quote")).toHaveLength(1);
   });
 
-  it("distinguishes the Fable prose quote from callouts and publisher punctuation", () => {
+  it("applies one quotation-mark treatment to prose, callouts, and structured quotes", () => {
     const html = cleanArticleHtml(
       `<blockquote>
          <p>Beginning July 20, Claude Fable 5 will be included in all Max and Team Premium plans, at 50% of limits.</p>
          <p>Pro and Team Standard users will continue to have access to Fable via usage credits, and will receive a one-time $100 credit.</p>
        </blockquote>
-       <blockquote class="article-prose-quote article-prose-quote-marked"><p>Note: This release requires a database migration.</p></blockquote>
+       <blockquote><p><strong>Abstract:</strong> This quotation starts with a former callout keyword.</p></blockquote>
+       <blockquote><p>Under the new terms:</p><ul><li>Structured quotation item</li></ul></blockquote>
        <blockquote><p>[!TIP] Run <code>native check</code> before building.</p></blockquote>
        <blockquote><p>“This publisher already included an opening quote.”</p></blockquote>
        <blockquote>&quot;We are honored to share this update.&quot;</blockquote>
-       <blockquote><p><span class="article-quote-mark" aria-hidden="true">Injected publisher text</span> remains visible.</p></blockquote>
-       <p><span class="article-quote-mark" aria-hidden="true">Visible outside text</span></p>`,
+       <blockquote><p>„Ten wydawca również dodał znak otwierający.”</p></blockquote>
+       <blockquote><p>Final quotation.</p></blockquote>`,
     );
     const body = articleBody(html);
     const quotes = body.querySelectorAll("blockquote");
 
-    expect(quotes[0]?.classList.contains("article-prose-quote")).toBe(true);
-    expect(quotes[0]?.classList.contains("article-prose-quote-marked")).toBe(true);
-    expect(quotes[0]?.querySelector(".article-quote-mark")).toMatchObject({
-      ariaHidden: "true",
-      textContent: "“",
-    });
-    expect(quotes[1]?.className).toBe("");
-    expect(quotes[2]?.className).toBe("");
-    expect(quotes[3]?.classList.contains("article-prose-quote")).toBe(true);
-    expect(quotes[3]?.classList.contains("article-prose-quote-marked")).toBe(false);
-    expect(quotes[3]?.querySelector(".article-quote-mark")).toBeNull();
-    expect(quotes[4]?.classList.contains("article-prose-quote")).toBe(true);
-    expect(quotes[4]?.classList.contains("article-prose-quote-marked")).toBe(false);
-    expect(quotes[5]?.classList.contains("article-prose-quote-marked")).toBe(true);
-    expect(quotes[5]?.querySelectorAll(":scope > .article-quote-mark")).toHaveLength(1);
-    const injectedPublisherText = [...(quotes[5]?.querySelectorAll("span") ?? [])].find((span) =>
-      span.textContent?.includes("Injected publisher text"),
-    );
-    expect(injectedPublisherText).toMatchObject({ className: "" });
-    expect(injectedPublisherText?.getAttribute("aria-hidden")).toBeNull();
-    const outsidePublisherText = [...body.querySelectorAll("span")].find((span) =>
-      span.textContent?.includes("Visible outside text"),
-    );
-    expect(outsidePublisherText).toMatchObject({ className: "" });
-    expect(outsidePublisherText?.getAttribute("aria-hidden")).toBeNull();
+    expect(quotes).toHaveLength(8);
+    expect([...quotes].map((quote) => quote.className)).toEqual([
+      "article-prose-quote-marked",
+      "article-prose-quote-marked",
+      "article-prose-quote-marked",
+      "article-prose-quote-marked",
+      "",
+      "",
+      "",
+      "article-prose-quote-marked",
+    ]);
+    expect(body.querySelectorAll("blockquote > .article-quote-mark")).toHaveLength(5);
+    for (const marker of body.querySelectorAll("blockquote > .article-quote-mark")) {
+      expect(marker).toMatchObject({ ariaHidden: "true", textContent: "“" });
+    }
+    expect(quotes[1]?.textContent).toContain("Abstract: This quotation");
+    expect(quotes[2]?.querySelector("ul li")?.textContent).toBe("Structured quotation item");
+    expect(quotes[4]?.textContent).toContain("“This publisher already included");
+    expect(quotes[6]?.textContent).toContain("„Ten wydawca również dodał");
 
     expect(cleanArticleHtml(html)).toBe(html);
   });
 
-  it("renders Telegram blockquotes with inline formatting as prose quotes", () => {
+  it("applies the same quotation treatment to Telegram blockquotes", () => {
     const source = `<blockquote>Средняя продолжительность жизни российского военного на поле боя сейчас — <b>от 20 до 30 минут.</b><br><br><b>20–30 минут.</b> Это потому что ИИ-дроны стали специализированными машинами.</blockquote>
       <blockquote>&quot;Противники США, включая <b>как минимум Россию,</b> имеют возможности компрометировать инфраструктуру&quot;.</blockquote>
       <blockquote><b>Note:</b> This remains a callout.</blockquote>`;
@@ -119,23 +114,18 @@ native dev
     const body = articleBody(html);
     const quotes = body.querySelectorAll("blockquote");
 
-    expect(quotes[0]?.className).toBe("article-prose-quote article-prose-quote-marked");
-    expect(quotes[0]?.querySelector(":scope > .article-quote-mark")).toMatchObject({
-      ariaHidden: "true",
-      textContent: "“",
-    });
-    expect(quotes[1]?.className).toBe("article-prose-quote");
-    expect(quotes[1]?.querySelector(":scope > .article-quote-mark")).toBeNull();
-    expect(quotes[2]?.className).toBe("");
+    expect([...quotes].map((quote) => quote.className)).toEqual([
+      "article-prose-quote-marked",
+      "",
+      "article-prose-quote-marked",
+    ]);
+    expect(body.querySelectorAll("blockquote > .article-quote-mark")).toHaveLength(2);
+    expect(quotes[0]?.querySelector("b")?.textContent).toBe("от 20 до 30 минут.");
     expect(cleanArticleHtml(html, telegramUrl)).toBe(html);
-
-    const genericBody = articleBody(cleanArticleHtml(source, "https://example.test/article"));
-    expect([...genericBody.querySelectorAll("blockquote")].map((quote) => quote.className)).toEqual(
-      ["", "", ""],
-    );
+    expect(cleanArticleHtml(source, "https://example.test/article")).toBe(html);
   });
 
-  it("renders Nitter quoted posts with the prose quote treatment", () => {
+  it("applies the same quotation treatment to Nitter quoted posts", () => {
     const source = `<p>Truth btw</p>
       <hr>
       <blockquote>
@@ -152,7 +142,7 @@ native dev
     const html = cleanArticleHtml(source, nitterUrl);
     const quote = articleBody(html).querySelector("blockquote");
 
-    expect(quote?.className).toBe("article-prose-quote article-prose-quote-marked");
+    expect(quote?.className).toBe("article-prose-quote-marked");
     expect(quote?.querySelector(":scope > .article-quote-mark")).toMatchObject({
       ariaHidden: "true",
       textContent: "“",
@@ -167,12 +157,6 @@ native dev
       target: "_blank",
     });
     expect(cleanArticleHtml(html, nitterUrl)).toBe(html);
-
-    const genericQuote = articleBody(
-      cleanArticleHtml(source, "https://example.test/article"),
-    ).querySelector("blockquote");
-    expect(genericQuote?.className).toBe("");
-    expect(genericQuote?.querySelector(".article-quote-mark")).toBeNull();
   });
 
   it("keeps commas inside responsive image URLs while resolving relative candidates", () => {
