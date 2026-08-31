@@ -94,24 +94,45 @@ function openArticleButton(container: HTMLElement, title: string): HTMLButtonEle
   return button;
 }
 
+function expandedArticleTitles(container: HTMLElement): string[] {
+  return [...container.querySelectorAll<HTMLElement>(".expanded-article .article-header h2")].map(
+    (heading) => heading.textContent?.trim() ?? "",
+  );
+}
+
+function activeExpandedArticleTitle(container: HTMLElement): string | null {
+  return (
+    container
+      .querySelector<HTMLElement>(".expanded-article.is-active .article-header h2")
+      ?.textContent?.trim() ?? null
+  );
+}
+
 describe("live article delivery", () => {
-  it("keeps a newly fetched article reachable after the active refresh settles", async () => {
+  it("keeps newly fetched articles at the end of active reading queues", async () => {
     const database = new AppDatabase(":memory:");
     const extraction = new ExtractionQueue(database.extractions, 1, 1_000);
     const webFeeds = new WebFeedService();
-    const refresh = new FeedRefreshService(
-      database.feeds,
-      1,
-      1_000,
-      webFeeds,
-      async () =>
-        new Response(
-          `<?xml version="1.0" encoding="UTF-8"?>
+    let feedRefreshCount = 0;
+    const refresh = new FeedRefreshService(database.feeds, 1, 1_000, webFeeds, async () => {
+      feedRefreshCount += 1;
+      const latestItem =
+        feedRefreshCount > 1
+          ? `<item>
+                <guid>delivered-expanded</guid>
+                <title>Delivered into expanded view</title>
+                <pubDate>Wed, 12 Aug 2026 12:00:00 GMT</pubDate>
+                <description>Delivered into expanded view summary</description>
+              </item>`
+          : "";
+      return new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0">
             <channel>
               <title>Live reading</title>
               <link>https://example.test/</link>
               <description>Stories delivered while the queue is open.</description>
+              ${latestItem}
               <item>
                 <guid>delivered</guid>
                 <title>Delivered while reading</title>
@@ -120,9 +141,9 @@ describe("live article delivery", () => {
               </item>
             </channel>
           </rss>`,
-          { status: 200, headers: { "Content-Type": "application/rss+xml" } },
-        ),
-    );
+        { status: 200, headers: { "Content-Type": "application/rss+xml" } },
+      );
+    });
     const application = new ApplicationApi({
       database,
       extractionQueue: extraction,
@@ -272,6 +293,85 @@ describe("live article delivery", () => {
         .articles.find(({ title }) => title === "Delivered while reading");
       expect(delivered).toBeDefined();
       expect(dom.window.location.pathname).toBe(`/articles/${delivered?.id}`);
+
+      const backButton = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Back to articles"]',
+      );
+      if (!backButton) throw new Error("The reader did not render its back button");
+      await act(async () => backButton.click());
+      await waitFor(
+        "the unread article list to return",
+        () => dom.window.location.pathname === "/articles/unread",
+      );
+      const allArticlesButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent?.trim() === "All articles",
+      );
+      if (!allArticlesButton) throw new Error("The reader did not render its All articles filter");
+      await act(async () => allArticlesButton.click());
+      await waitFor(
+        "all articles to load",
+        () => container.querySelectorAll(".article-open-button").length === 3,
+      );
+      const expandedViewButton = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Expanded view"]',
+      );
+      if (!expandedViewButton)
+        throw new Error("The reader did not render its Expanded view button");
+      await act(async () => expandedViewButton.click());
+      await waitFor(
+        "the expanded article stream",
+        () => expandedArticleTitles(container).length === 3,
+      );
+      expect(expandedArticleTitles(container)).toEqual([
+        "Delivered while reading",
+        "Starting article",
+        "Last loaded article",
+      ]);
+
+      await act(async () => {
+        dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "j" }));
+      });
+      await waitFor(
+        "expanded navigation into the second article",
+        () => activeExpandedArticleTitle(container) === "Starting article",
+      );
+      await act(async () => {
+        dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight" }));
+      });
+      await waitFor(
+        "the end of the expanded sequence",
+        () => activeExpandedArticleTitle(container) === "Last loaded article",
+      );
+
+      const articleRequestsBeforeExpandedRefresh = deliveredArticleListRequests;
+      await act(async () => refreshButton.click());
+      await waitFor("the expanded article to be fetched", () =>
+        database.articles
+          .listArticlePage(TEST_USER_ID, { state: "all" })
+          .articles.some(({ title }) => title === "Delivered into expanded view"),
+      );
+      await waitFor(
+        "the expanded refresh reconciliation",
+        () => deliveredArticleListRequests >= articleRequestsBeforeExpandedRefresh + 2,
+      );
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(expandedArticleTitles(container)).toEqual([
+        "Delivered while reading",
+        "Starting article",
+        "Last loaded article",
+        "Delivered into expanded view",
+      ]);
+      expect(activeExpandedArticleTitle(container)).toBe("Last loaded article");
+
+      await act(async () => {
+        dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "j" }));
+      });
+      await waitFor(
+        "expanded navigation into the delivered article",
+        () => activeExpandedArticleTitle(container) === "Delivered into expanded view",
+      );
     } finally {
       await act(async () => root.unmount());
       await Promise.all([refresh.stop(), extraction.stop()]);

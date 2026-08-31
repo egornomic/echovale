@@ -313,14 +313,33 @@ export function useArticleQueue({
       requestId.current += 1;
       setLoadingMore(false);
 
-      if (currentAppRoute.kind === "article") {
-        const { appended } = appendUnseenArticles(articlesRef.current, page.articles);
-        setArticles((current) => appendUnseenArticles(current, page.articles).articles);
-        setNextCursor(page.nextCursor);
+      const appendDeliveredArticles = (
+        candidates: Article[],
+        cursor: string | null,
+        readerQueue: boolean,
+      ) => {
+        const { articles: nextArticles, appended } = appendUnseenArticles(
+          articlesRef.current,
+          candidates,
+        );
+        setArticles((current) => appendUnseenArticles(current, candidates).articles);
+        setNextCursor(cursor);
         setError(null);
         if (readingMode === "expanded") {
           for (const article of appended) fullContentLoadedIds.current.add(article.id);
         }
+        if (!readerQueue) return;
+        articleListNeedsReload.current = false;
+        loadedReaderRequestKey.current = requestKey;
+        setActiveArticleId((current) =>
+          current !== null && nextArticles.some((article) => article.id === current)
+            ? current
+            : (nextArticles[0]?.id ?? null),
+        );
+      };
+
+      if (currentAppRoute.kind === "article" || readingMode === "expanded") {
+        appendDeliveredArticles(page.articles, page.nextCursor, currentAppRoute.kind === "reader");
         return;
       }
 
@@ -331,7 +350,7 @@ export function useArticleQueue({
         const nextPage = await api.articles(
           articleQueryForReaderRoute(queryRoute, {
             limit: Math.min(500, loadedCount - reloaded.length),
-            includeContent: readingMode === "expanded",
+            includeContent: false,
             cursor,
           }),
           signal,
@@ -354,13 +373,7 @@ export function useArticleQueue({
       }
 
       if (latestAppRoute.kind === "article") {
-        const { appended } = appendUnseenArticles(articlesRef.current, reloaded);
-        setArticles((current) => appendUnseenArticles(current, reloaded).articles);
-        setNextCursor(cursor);
-        setError(null);
-        if (readingMode === "expanded") {
-          for (const article of appended) fullContentLoadedIds.current.add(article.id);
-        }
+        appendDeliveredArticles(reloaded, cursor, false);
         return;
       }
       if (latestAppRoute.kind !== "reader") {
@@ -374,9 +387,7 @@ export function useArticleQueue({
       setArticles(nextArticles);
       setNextCursor(cursor);
       setError(null);
-      fullContentLoadedIds.current = new Set(
-        readingMode === "expanded" ? nextArticles.map((article) => article.id) : [],
-      );
+      fullContentLoadedIds.current = new Set();
       setActiveArticleId((current) =>
         current !== null && nextArticles.some((article) => article.id === current)
           ? current
