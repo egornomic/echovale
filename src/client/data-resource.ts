@@ -522,7 +522,7 @@ export class ReaderDataResource implements ReaderDataMutations {
   private async flushTrackedArticleReload(): Promise<void> {
     if (!this.reloadArticlesAfterTracking) return;
     this.reloadArticlesAfterTracking = false;
-    await this.loadArticles("mutation");
+    await this.loadArticles("delivery");
   }
 
   private waitForPoll(): Promise<void> {

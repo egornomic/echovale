@@ -95,11 +95,34 @@ function openArticleButton(container: HTMLElement, title: string): HTMLButtonEle
 }
 
 describe("live article delivery", () => {
-  it("continues from the last open article into an article delivered while reading", async () => {
+  it("keeps a newly fetched article reachable after the active refresh settles", async () => {
     const database = new AppDatabase(":memory:");
     const extraction = new ExtractionQueue(database.extractions, 1, 1_000);
     const webFeeds = new WebFeedService();
-    const refresh = new FeedRefreshService(database.feeds, 1, 1_000, webFeeds);
+    const refresh = new FeedRefreshService(
+      database.feeds,
+      1,
+      1_000,
+      webFeeds,
+      async () =>
+        new Response(
+          `<?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0">
+            <channel>
+              <title>Live reading</title>
+              <link>https://example.test/</link>
+              <description>Stories delivered while the queue is open.</description>
+              <item>
+                <guid>delivered</guid>
+                <title>Delivered while reading</title>
+                <pubDate>Tue, 11 Aug 2026 12:00:00 GMT</pubDate>
+                <description>Delivered while reading summary</description>
+              </item>
+            </channel>
+          </rss>`,
+          { status: 200, headers: { "Content-Type": "application/rss+xml" } },
+        ),
+    );
     const application = new ApplicationApi({
       database,
       extractionQueue: extraction,
@@ -113,7 +136,6 @@ describe("live article delivery", () => {
       title: "Live reading",
       feedUrl: "https://example.test/live-reading.xml",
       folderId: null,
-      paused: true,
     });
     database.feeds.completeRefresh(feed.id, {
       httpStatus: 200,
@@ -129,10 +151,19 @@ describe("live article delivery", () => {
       },
     });
 
-    const dataChangedListeners = new Set<() => void>();
+    let deliveredArticleListRequests = 0;
     const invoke = async (request: DesktopRequest): Promise<DesktopResponse> => {
       try {
-        return { ok: true, value: await application.invoke(request) };
+        const value = await application.invoke(request);
+        if (
+          request.operation === "articles" &&
+          database.articles
+            .listArticlePage(TEST_USER_ID, { state: "all" })
+            .articles.some(({ title }) => title === "Delivered while reading")
+        ) {
+          deliveredArticleListRequests += 1;
+        }
+        return { ok: true, value };
       } catch (caught) {
         const error = caught instanceof Error ? caught : new Error(String(caught));
         return {
@@ -149,10 +180,7 @@ describe("live article delivery", () => {
       platform: "desktop",
       invoke,
       exportOpml: () => invoke({ operation: "exportOpml" }),
-      onDataChanged: (listener) => {
-        dataChangedListeners.add(listener);
-        return () => dataChangedListeners.delete(listener);
-      },
+      onDataChanged: (listener) => refresh.subscribe(TEST_USER_ID, listener),
     };
 
     const dom = new JSDOM('<div id="app"></div>', {
@@ -193,8 +221,6 @@ describe("live article delivery", () => {
         "the initial unread articles",
         () => container.querySelectorAll(".article-open-button").length === 2,
       );
-      expect(dataChangedListeners.size).toBe(1);
-
       await act(async () => openArticleButton(container, "Starting article").click());
       await waitFor(
         "the first article to open",
@@ -215,31 +241,25 @@ describe("live article delivery", () => {
       );
       expect(nextArticleButton(container).disabled).toBe(true);
 
-      database.feeds.completeRefresh(feed.id, {
-        httpStatus: 200,
-        etag: null,
-        lastModified: null,
-        parsed: {
-          title: feed.title,
-          siteUrl: null,
-          articles: [
-            parsedArticle("delivered", "Delivered while reading", "2026-08-11T12:00:00.000Z"),
-          ],
-        },
-      });
-      expect(
+      const refreshButton = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Refresh this view (R)"]',
+      );
+      if (!refreshButton) throw new Error("The reader did not render its refresh button");
+      await act(async () => refreshButton.click());
+      await waitFor("the fetched article to be stored", () =>
         database.articles
           .listArticlePage(TEST_USER_ID, { state: "unread" })
-          .articles.map(({ title }) => title),
-      ).toEqual(["Delivered while reading"]);
-
-      await act(async () => {
-        for (const listener of dataChangedListeners) listener();
-      });
+          .articles.some(({ title }) => title === "Delivered while reading"),
+      );
       await waitFor(
         "the delivered article to become reachable",
         () => !nextArticleButton(container).disabled,
       );
+      await waitFor("the active refresh reconciliation", () => deliveredArticleListRequests >= 2);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(nextArticleButton(container).disabled).toBe(false);
       expect(articleHeading(container)).toBe("Last loaded article");
 
       await act(async () => nextArticleButton(container).click());
