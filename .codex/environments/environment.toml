@@ -4,13 +4,13 @@ name = "Feedfold"
 
 [setup]
 script = '''
-ln -sfn "$CODEX_SOURCE_TREE_PATH/node_modules" node_modules
+npm ci --ignore-scripts=false --cache .npm-cache
 node .codex/scripts/dev-server.mjs start
 '''
 
 [setup.darwin]
 script = '''
-ln -sfn "$CODEX_SOURCE_TREE_PATH/node_modules" node_modules
+fnm exec --using=.node-version npm ci --ignore-scripts=false --cache .npm-cache
 fnm exec --using=.node-version node .codex/scripts/dev-server.mjs start
 '''
 
