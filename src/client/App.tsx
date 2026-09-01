@@ -485,7 +485,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
 
   const refresh = useCallback(
     async (feedId?: number, forceAll = false) => {
-      if (!bootstrap) return;
+      if (!bootstrap?.capabilities.manualRefresh) return;
       const selectedFeedId = route.readerRoute.scope === "feed" ? route.readerRoute.scopeId : null;
       const selectedFolderId =
         route.readerRoute.scope === "folder" ? route.readerRoute.scopeId : null;
@@ -567,6 +567,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
         sequence.current = { startedAt: Date.now() };
         return;
       }
+      if (key === "r" && !bootstrap.capabilities.manualRefresh) return;
       if (event.shiftKey && key === "r") {
         event.preventDefault();
         void refresh(undefined, true);
@@ -639,6 +640,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
     return () => window.removeEventListener("keydown", handleKey);
   }, [
     articleActions,
+    bootstrap?.capabilities.manualRefresh,
     bootstrap?.settings.singleKeyShortcuts,
     changeReadingMode,
     managementRequest,
@@ -715,6 +717,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
               markReadPending={articleActions.markReadPending}
               navOpen={navOpen}
               readingArticle={readerOpen && preferences.readingMode === "magazine"}
+              manualRefreshEnabled={bootstrap.capabilities.manualRefresh}
               onToggleNav={() => setNavOpen((current) => !current)}
               onArticleStateChange={(state) => selectScope(selectedFeedId, selectedFolderId, state)}
               onSearchInput={route.setSearchInput}
@@ -965,6 +968,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
         <Suspense fallback={null}>
           <ShortcutHelp
             enabled={bootstrap.settings.singleKeyShortcuts}
+            manualRefreshEnabled={bootstrap.capabilities.manualRefresh}
             onClose={() => setShortcutHelpOpen(false)}
           />
         </Suspense>

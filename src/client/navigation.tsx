@@ -309,15 +309,17 @@ export function Sidebar({
                   : "Subscriptions"}
             </span>
             <span className="sidebar-section-actions">
-              <button
-                type="button"
-                onClick={onRefresh}
-                disabled={refreshing}
-                aria-label="Refresh feeds"
-                title="Refresh feeds (R)"
-              >
-                <RefreshCw className={refreshing ? "spin" : ""} aria-hidden="true" size={14} />
-              </button>
+              {bootstrap.capabilities.manualRefresh ? (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={refreshing}
+                  aria-label="Refresh feeds"
+                  title="Refresh feeds (R)"
+                >
+                  <RefreshCw className={refreshing ? "spin" : ""} aria-hidden="true" size={14} />
+                </button>
+              ) : null}
               <button type="button" onClick={onAddFeed} aria-label="Add feed" title="Add feed">
                 <Plus aria-hidden="true" size={15} />
               </button>
@@ -759,6 +761,7 @@ interface ReaderToolbarProps {
   markReadPending: boolean;
   navOpen: boolean;
   readingArticle: boolean;
+  manualRefreshEnabled: boolean;
   onToggleNav: () => void;
   onArticleStateChange: (state: "unread" | "all") => void;
   onSearchInput: (value: string) => void;
@@ -783,6 +786,7 @@ export function ReaderToolbar({
   markReadPending,
   navOpen,
   readingArticle,
+  manualRefreshEnabled,
   onToggleNav,
   onArticleStateChange,
   onSearchInput,
@@ -884,23 +888,27 @@ export function ReaderToolbar({
           />
         ) : null}
         <div className="toolbar-actions">
-          <IconButton
-            label="Refresh this view (R)"
-            onClick={onRefresh}
-            disabled={refreshing}
-            tooltip
-          >
-            <RefreshCw className={refreshing ? "spin" : ""} aria-hidden="true" size={17} />
-          </IconButton>
-          <IconButton
-            label="Refresh all feeds (Shift+R)"
-            onClick={onRefreshAll}
-            disabled={refreshing}
-            className="refresh-all-action"
-            tooltip
-          >
-            <Rss aria-hidden="true" size={17} />
-          </IconButton>
+          {manualRefreshEnabled ? (
+            <>
+              <IconButton
+                label="Refresh this view (R)"
+                onClick={onRefresh}
+                disabled={refreshing}
+                tooltip
+              >
+                <RefreshCw className={refreshing ? "spin" : ""} aria-hidden="true" size={17} />
+              </IconButton>
+              <IconButton
+                label="Refresh all feeds (Shift+R)"
+                onClick={onRefreshAll}
+                disabled={refreshing}
+                className="refresh-all-action"
+                tooltip
+              >
+                <Rss aria-hidden="true" size={17} />
+              </IconButton>
+            </>
+          ) : null}
           <MarkReadSplitButton
             disabled={markReadPending}
             onMarkRead={onMarkRead}

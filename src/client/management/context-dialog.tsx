@@ -108,12 +108,14 @@ function DialogError({ message }: { message: string }) {
 function FeedSettingsPanel({
   feed,
   mutations,
+  manualRefreshEnabled,
   onClose,
   onRefresh,
   showToast,
 }: {
   feed: Feed;
   mutations: ReaderDataMutations;
+  manualRefreshEnabled: boolean;
   onClose: () => void;
   onRefresh: (feedId: number) => Promise<void>;
   showToast: (message: string) => void;
@@ -269,19 +271,21 @@ function FeedSettingsPanel({
       </div>
       <footer className="management-dialog-footer">
         <div>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={busy !== null || loading || details.paused}
-            onClick={() => void refresh()}
-          >
-            {busy === "refresh" ? (
-              <LoaderCircle className="spin" aria-hidden="true" size={15} />
-            ) : (
-              <RefreshCw aria-hidden="true" size={15} />
-            )}
-            Refresh feed
-          </button>
+          {manualRefreshEnabled ? (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={busy !== null || loading || details.paused}
+              onClick={() => void refresh()}
+            >
+              {busy === "refresh" ? (
+                <LoaderCircle className="spin" aria-hidden="true" size={15} />
+              ) : (
+                <RefreshCw aria-hidden="true" size={15} />
+              )}
+              Refresh feed
+            </button>
+          ) : null}
           <button
             className="secondary-button"
             type="button"
@@ -916,6 +920,7 @@ function ContextManagementDialog({
             <FeedSettingsPanel
               feed={feed}
               mutations={mutations}
+              manualRefreshEnabled={bootstrap.capabilities.manualRefresh}
               onClose={close}
               onRefresh={onRefresh}
               showToast={showToast}

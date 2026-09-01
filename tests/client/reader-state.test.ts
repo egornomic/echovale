@@ -81,6 +81,7 @@ function bootstrap(): BootstrapData {
       features: { articleSummary: null },
     },
     counts: { unread: 1, starred: 0, all: 4 },
+    capabilities: { manualRefresh: true },
   };
 }
 

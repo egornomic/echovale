@@ -96,6 +96,7 @@ export class FeedRefreshService {
     private readonly timeoutMs = 15_000,
     private readonly webFeedService?: WebFeedService,
     private readonly feedFetcher: typeof fetchFeed = fetchFeed,
+    private readonly maxPending = feeds.refreshQueueLimit() ?? Number.POSITIVE_INFINITY,
   ) {}
 
   start(): void {
@@ -118,7 +119,10 @@ export class FeedRefreshService {
   private enqueue(feedIds: number[] | undefined, scheduled: boolean): RefreshResult {
     if (this.stopped) return { requested: 0, refreshingFeedIds: [] };
     const candidates = this.feeds.getRefreshCandidates(feedIds);
-    const accepted = candidates.filter((feed) => !this.requestedIds.has(feed.id));
+    const available = Math.max(0, this.maxPending - this.pending.length);
+    const accepted = candidates
+      .filter((feed) => !this.requestedIds.has(feed.id))
+      .slice(0, available);
     for (const feed of accepted) {
       this.requestedIds.add(feed.id);
       this.feeds.markSourceRefreshing(feed.id);

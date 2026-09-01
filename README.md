@@ -78,14 +78,6 @@ The included Compose deployment runs one Node.js 24.18.0 process, starts sandbox
 
 The health endpoint returns HTTP 200 when the SQLite query succeeds. Application data is stored in the `feedfold-data` volume at `/data/feedfold.db`.
 
-## Keep access private
-
-Compose publishes feedfold on host loopback by default. The first account can be created only while no account exists; account creation closes as soon as setup succeeds.
-
-For access from another device, use a trusted private network or an HTTPS reverse proxy. Set `FEEDFOLD_PUBLIC_ORIGIN` to the exact external HTTPS origin, such as `https://reader.example.com`. This fixes the passkey relying-party identity, enables secure cookies, and rejects browser requests from other origins.
-
-If you deliberately want anyone who can reach a public server to create an isolated account, set `FEEDFOLD_ALLOW_PUBLIC_REGISTRATION=1`. Leave it unset for personal or private deployments.
-
 ## Configuration reference
 
 Compose reads these values from the shell or a project-level `.env` file:
@@ -95,6 +87,9 @@ Compose reads these values from the shell or a project-level `.env` file:
 | `FEEDFOLD_BIND_ADDRESS` | `127.0.0.1` | Host address that publishes the container port. Keep loopback when a local reverse proxy provides access. |
 | `FEEDFOLD_PORT` | `3000` | Host port forwarded to feedfold. |
 | `FEEDFOLD_BASE_PATH` | `/` | Browser-facing path where feedfold is mounted. Set this at build time, including the leading and trailing slash, when a reverse proxy publishes feedfold below a path such as `/feedfold/`. |
+| `FEEDFOLD_DEPLOYMENT_MODE` | `private` | Use `private` for unrestricted desktop and self-hosted operation, or `public` for public-service inactivity, refresh, and subscription limits. |
+| `FEEDFOLD_PUBLIC_ORIGIN` | none | Exact external HTTPS origin used for secure cookies, passkeys, and browser-origin validation. |
+| `FEEDFOLD_ALLOW_PUBLIC_REGISTRATION` | `0` | Set to `1` to allow additional accounts to register. |
 | `POLL_INTERVAL_MINUTES` | `20` | Starting interval for new published feeds, rounded up to 5, 10, 20, 30, or 60 minutes. |
 | `FEED_FETCH_TIMEOUT_MS` | `15000` | Feed request timeout, in milliseconds. |
 | `WEB_FEED_LOAD_TIMEOUT_MS` | `30000` | Maximum normal load time for a JavaScript-rendered web feed, in milliseconds. |

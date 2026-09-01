@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { CredentialCipher } from "./ai/credential-cipher.js";
 import { createApp } from "./app.js";
 import { AppDatabase } from "./database.js";
+import { deploymentPolicy } from "./deployment-policy.js";
 import { ExtractionQueue } from "./extraction.js";
 import { AiService } from "./features/ai/service.js";
 import { AuthService } from "./features/auth/service.js";
@@ -74,9 +75,10 @@ const aiRequestTimeoutMs = positiveInteger(
 );
 const staticDir = fileURLToPath(new URL("../client", import.meta.url));
 const publicOrigin = configuredPublicOrigin(process.env.FEEDFOLD_PUBLIC_ORIGIN);
+const policy = deploymentPolicy(process.env.FEEDFOLD_DEPLOYMENT_MODE);
 
 mkdirSync(dirname(databasePath), { recursive: true });
-const database = new AppDatabase(databasePath, pollIntervalMinutes);
+const database = new AppDatabase(databasePath, pollIntervalMinutes, policy);
 const authService = new AuthService(database.auth, pollIntervalMinutes, {
   allowPublicRegistration: process.env.FEEDFOLD_ALLOW_PUBLIC_REGISTRATION === "1",
 });

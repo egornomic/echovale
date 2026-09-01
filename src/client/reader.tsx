@@ -652,7 +652,7 @@ export function EmptyArticles({
       <section className="inline-state empty-state">
         <CheckCheck aria-hidden="true" size={40} strokeWidth={1.7} />
         <h2>No unread articles</h2>
-        <p>New articles will appear after a scheduled or manual refresh.</p>
+        <p>New articles will appear after the next refresh.</p>
         <button className="secondary-button" type="button" onClick={onShowAll}>
           Show read articles
         </button>

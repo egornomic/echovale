@@ -1,5 +1,7 @@
 import type Sqlite from "better-sqlite3";
 import type { Feed, WebFeedConfig } from "../../../shared/types.js";
+import type { DeploymentPolicy } from "../../deployment-policy.js";
+import { InvalidRequestError } from "../../errors.js";
 import type { ArticleRepository } from "../articles/repository.js";
 import type { FolderRepository } from "../folders/repository.js";
 import type { RuleRepository } from "../rules/repository.js";
@@ -16,6 +18,7 @@ export class FeedService {
     private readonly folders: FolderRepository,
     private readonly articles: ArticleRepository,
     private readonly rules: RuleRepository,
+    private readonly deploymentPolicy: DeploymentPolicy,
   ) {
     this.ingestion = new FeedIngestionService(sqlite, repository, articles, rules);
   }
@@ -26,6 +29,25 @@ export class FeedService {
 
   getFeed(userId: number, id: number): Feed | null {
     return this.repository.getFeed(userId, id);
+  }
+
+  assertCanCreateFeed(userId: number): void {
+    const limit = this.deploymentPolicy.maxFeedsPerAccount;
+    if (limit === null) return;
+    const count = Number(
+      this.sqlite.prepare("SELECT COUNT(*) FROM feeds WHERE user_id = ?").pluck().get(userId),
+    );
+    if (count >= limit) {
+      throw new InvalidRequestError(`This account can subscribe to up to ${limit} feeds.`);
+    }
+  }
+
+  refreshQueueLimit(): number | null {
+    return this.deploymentPolicy.maxPendingRefreshes;
+  }
+
+  manualRefreshEnabled(): boolean {
+    return this.deploymentPolicy.manualRefresh;
   }
 
   createFeed(
@@ -39,6 +61,7 @@ export class FeedService {
     },
   ): Feed {
     return this.sqlite.transaction(() => {
+      this.assertCanCreateFeed(userId);
       const feed = this.repository.createFeed(userId, input);
       this.ingestion.initializeSubscription(feed.id, this.repository.sourceIdForFeed(feed.id));
       return this.repository.getFeed(userId, feed.id) as Feed;
@@ -55,6 +78,7 @@ export class FeedService {
       parsed: ParsedFeed;
     },
   ): Feed {
+    this.assertCanCreateFeed(userId);
     this.folders.assertFolderExists(userId, input.folderId);
     if (input.parsed.articles.length === 0) {
       throw new Error("This selection does not match any entries. Choose another entry group.");

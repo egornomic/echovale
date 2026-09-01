@@ -307,6 +307,9 @@ export interface BootstrapData {
     starred: number;
     all: number;
   };
+  capabilities: {
+    manualRefresh: boolean;
+  };
 }
 
 export interface ArticleQuery {

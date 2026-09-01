@@ -636,6 +636,7 @@ function FeedsPage({
                       key={feed.id}
                       feed={feed}
                       folders={bootstrap.folders}
+                      manualRefreshEnabled={bootstrap.capabilities.manualRefresh}
                       onRefresh={() => onRefresh(feed.id)}
                       onAction={(action) => onFeedAction(feed, action)}
                     />
@@ -1459,11 +1460,13 @@ function FeedSourceIcon({
 function FeedRow({
   feed,
   folders,
+  manualRefreshEnabled,
   onRefresh,
   onAction,
 }: {
   feed: Feed;
   folders: Folder[];
+  manualRefreshEnabled: boolean;
   onRefresh: () => void;
   onAction: (action: FeedManagementAction) => void;
 }) {
@@ -1544,16 +1547,18 @@ function FeedRow({
         </time>
       </div>
       <div className="feed-row-actions">
-        <button
-          className="feed-refresh-button"
-          type="button"
-          disabled={feed.refreshing || feed.paused}
-          onClick={onRefresh}
-          aria-label={`Refresh ${feed.title}`}
-          title="Refresh feed"
-        >
-          <RefreshCw className={feed.refreshing ? "spin" : ""} aria-hidden="true" size={15} />
-        </button>
+        {manualRefreshEnabled ? (
+          <button
+            className="feed-refresh-button"
+            type="button"
+            disabled={feed.refreshing || feed.paused}
+            onClick={onRefresh}
+            aria-label={`Refresh ${feed.title}`}
+            title="Refresh feed"
+          >
+            <RefreshCw className={feed.refreshing ? "spin" : ""} aria-hidden="true" size={15} />
+          </button>
+        ) : null}
         <AnchoredPopover
           label={`${feed.title} actions`}
           triggerClassName="feed-actions-trigger"

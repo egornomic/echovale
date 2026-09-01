@@ -32,6 +32,7 @@ export class FeedRepository {
   constructor(
     private readonly sqlite: Sqlite.Database,
     private readonly folders: FolderRepository,
+    private readonly accountActivityWindowDays: number | null,
   ) {}
 
   listFeeds(userId: number): Feed[] {
@@ -309,20 +310,27 @@ export class FeedRepository {
   }
 
   getDueFeedIds(at = now()): number[] {
-    const activeAfter = accountActivityCutoff(at);
+    const activityJoin =
+      this.accountActivityWindowDays === null
+        ? ""
+        : "JOIN users ON users.id = feeds.user_id AND users.last_active_at > ?";
+    const values =
+      this.accountActivityWindowDays === null
+        ? [at]
+        : [accountActivityCutoff(at, this.accountActivityWindowDays), at];
     return (
       this.sqlite
         .prepare(
           `SELECT MIN(feeds.id) AS id
            FROM feed_sources
            JOIN feeds ON feeds.source_id = feed_sources.id AND feeds.paused = 0
-           JOIN users ON users.id = feeds.user_id AND users.last_active_at > ?
+           ${activityJoin}
            WHERE feed_sources.refreshing = 0
              AND (feed_sources.next_poll_at IS NULL OR feed_sources.next_poll_at <= ?)
            GROUP BY feed_sources.id
            ORDER BY COALESCE(feed_sources.next_poll_at, feed_sources.created_at)`,
         )
-        .all(activeAfter, at) as Array<{ id: number }>
+        .all(...values) as Array<{ id: number }>
     ).map((row) => row.id);
   }
 

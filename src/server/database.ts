@@ -1,5 +1,6 @@
 import Sqlite from "better-sqlite3";
 import { normalizeFeedPollInterval } from "../shared/types.js";
+import { type DeploymentPolicy, PRIVATE_DEPLOYMENT_POLICY } from "./deployment-policy.js";
 import { AiRepository } from "./features/ai/repository.js";
 import { ArticleRepository } from "./features/articles/repository.js";
 import { AuthRepository } from "./features/auth/repository.js";
@@ -32,8 +33,14 @@ export class AppDatabase {
   readonly opml: OpmlService;
   readonly rules: RuleRepository;
   readonly settings: SettingsService;
+  readonly deploymentPolicy: DeploymentPolicy;
 
-  constructor(path: string, defaultPollIntervalMinutes = 20) {
+  constructor(
+    path: string,
+    defaultPollIntervalMinutes = 20,
+    deploymentPolicy = PRIVATE_DEPLOYMENT_POLICY,
+  ) {
+    this.deploymentPolicy = deploymentPolicy;
     this.connection = new Sqlite(path);
     this.connection.pragma("foreign_keys = ON");
     this.connection.pragma("journal_mode = WAL");
@@ -62,7 +69,11 @@ export class AppDatabase {
     this.settings = new SettingsService(this.connection, settingsRepository, this.ai);
 
     const folderRepository = new FolderRepository(this.connection);
-    const feedRepository = new FeedRepository(this.connection, folderRepository);
+    const feedRepository = new FeedRepository(
+      this.connection,
+      folderRepository,
+      deploymentPolicy.accountActivityWindowDays,
+    );
     const extractionRepository = new ExtractionRepository(this.connection);
     this.folders = new FolderService(this.connection, folderRepository, this.rules);
     this.feeds = new FeedService(
@@ -71,9 +82,16 @@ export class AppDatabase {
       folderRepository,
       this.articles,
       this.rules,
+      deploymentPolicy,
     );
     this.extractions = new ExtractionService(this.connection, extractionRepository, this.rules);
-    this.bootstrap = new BootstrapService(this.articles, this.feeds, this.folders, this.settings);
+    this.bootstrap = new BootstrapService(
+      this.articles,
+      this.feeds,
+      this.folders,
+      this.settings,
+      deploymentPolicy,
+    );
     this.opml = new OpmlService(this.feeds, this.folders);
   }
 

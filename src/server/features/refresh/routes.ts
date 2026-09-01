@@ -75,7 +75,10 @@ export async function refreshRoutes(
     sendChange();
   });
 
-  app.post("/api/refresh", async (request) => {
+  app.post("/api/refresh", async (request, reply) => {
+    if (!feeds.manualRefreshEnabled()) {
+      return reply.code(403).send({ error: "Manual refresh is unavailable." });
+    }
     const body = z
       .object({ feedIds: z.array(z.number().int().positive()).max(1_000).optional() })
       .parse(request.body ?? {});

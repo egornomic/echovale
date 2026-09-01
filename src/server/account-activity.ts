@@ -8,8 +8,11 @@ function before(at: string, milliseconds: number): string {
   return new Date(Date.parse(at) - milliseconds).toISOString();
 }
 
-export function accountActivityCutoff(at: string): string {
-  return before(at, ACCOUNT_ACTIVITY_WINDOW_DAYS * DAY_MS);
+export function accountActivityCutoff(
+  at: string,
+  windowDays = ACCOUNT_ACTIVITY_WINDOW_DAYS,
+): string {
+  return before(at, windowDays * DAY_MS);
 }
 
 export function accountActivityTouchBefore(at: string): string {

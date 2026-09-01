@@ -23,11 +23,22 @@ const shortcuts = [
   ["?", "Show shortcut reference"],
 ] as const;
 
-export function ShortcutReference({ compact = false }: { compact?: boolean }) {
+const refreshShortcutKeys = new Set(["R", "Shift R"]);
+
+export function ShortcutReference({
+  compact = false,
+  manualRefreshEnabled = true,
+}: {
+  compact?: boolean;
+  manualRefreshEnabled?: boolean;
+}) {
+  const visibleShortcuts = manualRefreshEnabled
+    ? shortcuts
+    : shortcuts.filter(([key]) => !refreshShortcutKeys.has(key));
   return (
     <div className={`shortcut-reference${compact ? " is-compact" : ""}`}>
       <dl>
-        {shortcuts.map(([key, label]) => (
+        {visibleShortcuts.map(([key, label]) => (
           <div key={key}>
             <dt>
               <Kbd>{key}</Kbd>
@@ -81,7 +92,15 @@ export function ShortcutReference({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function ShortcutHelp({ enabled, onClose }: { enabled: boolean; onClose: () => void }) {
+function ShortcutHelp({
+  enabled,
+  manualRefreshEnabled,
+  onClose,
+}: {
+  enabled: boolean;
+  manualRefreshEnabled: boolean;
+  onClose: () => void;
+}) {
   const dialog = useAnimatedDialog(onClose);
 
   return (
@@ -118,7 +137,7 @@ function ShortcutHelp({ enabled, onClose }: { enabled: boolean; onClose: () => v
           </span>
         </div>
       ) : null}
-      <ShortcutReference />
+      <ShortcutReference manualRefreshEnabled={manualRefreshEnabled} />
       <div className="dialog-footer">
         <p>Single-key shortcuts pause while you type in a form field.</p>
         <button className="primary-button" type="button" onClick={dialog.close}>

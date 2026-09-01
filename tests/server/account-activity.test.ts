@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppDatabase } from "../../src/server/database.js";
+import { PUBLIC_DEPLOYMENT_POLICY } from "../../src/server/deployment-policy.js";
 import { AuthService } from "../../src/server/features/auth/service.js";
 import { FeedRefreshService } from "../../src/server/refresh.js";
 
@@ -36,7 +37,7 @@ describe("account activity", () => {
   });
 
   it("schedules a shared source only for recent unpaused subscribers", async () => {
-    const database = new AppDatabase(":memory:");
+    const database = new AppDatabase(":memory:", 20, PUBLIC_DEPLOYMENT_POLICY);
     const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
     const first = (await auth.register("first-reader", "reader-password"))?.user;
     const second = (await auth.register("second-reader", "reader-password"))?.user;
