@@ -1,13 +1,17 @@
+import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import {
   AlertTriangle,
+  Check,
   Edit3,
   Eye,
   EyeOff,
+  KeyRound,
   LoaderCircle,
   MessageSquareText,
   Minus,
   Monitor,
   Moon,
+  Pencil,
   Plus,
   Sun,
   Trash2,
@@ -37,6 +41,447 @@ import { ExportOpmlLink, formatRefreshInterval, ImportOpmlButton, Kbd, PageHeade
 import { ShortcutReference } from "./shortcut-help";
 import "./dialogs.css";
 import "./settings.css";
+
+function AccountSettingsSection({ showToast }: { showToast: (message: string) => void }) {
+  const [passkeys, setPasskeys] = useState<Awaited<ReturnType<typeof api.passkeys>>>([]);
+  const [passkeysAvailable, setPasskeysAvailable] = useState(false);
+  const [loadingPasskeys, setLoadingPasskeys] = useState(true);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyToRemove, setPasskeyToRemove] = useState<string | null>(null);
+  const [passkeyPassword, setPasskeyPassword] = useState("");
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [editingPasskeyId, setEditingPasskeyId] = useState<string | null>(null);
+  const [passkeyName, setPasskeyName] = useState("");
+  const [renamingPasskey, setRenamingPasskey] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const passkeyPasswordRef = useRef<HTMLInputElement>(null);
+  const passkeyNameRef = useRef<HTMLInputElement>(null);
+
+  const resetPasskeyDialog = useCallback(() => {
+    setPasskeyToRemove(null);
+    setPasskeyPassword("");
+    setPasskeyError(null);
+  }, []);
+  const passkeyDialog = useAnimatedDialog(resetPasskeyDialog, { autoOpen: false });
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([api.authConfig(), api.passkeys()])
+      .then(([config, savedPasskeys]) => {
+        if (!active) return;
+        setPasskeysAvailable(config.passkeysAvailable && browserSupportsWebAuthn());
+        setPasskeys(savedPasskeys);
+      })
+      .catch((caught) => {
+        if (active) setError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (active) setLoadingPasskeys(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const openRemovePasskeyDialog = (id: string) => {
+    setEditingPasskeyId(null);
+    setPasskeyToRemove(id);
+    setPasskeyPassword("");
+    setPasskeyError(null);
+    passkeyDialog.open();
+    window.requestAnimationFrame(() => passkeyPasswordRef.current?.focus());
+  };
+
+  const closePasskeyDialog = () => {
+    if (!passkeyBusy) passkeyDialog.close();
+  };
+
+  const addPasskey = async () => {
+    setEditingPasskeyId(null);
+    setPasskeyBusy(true);
+    setError(null);
+    try {
+      const { ceremonyId, options } = await api.passkeyRegistrationOptions();
+      const response = await startRegistration({ optionsJSON: options });
+      const { passkey } = await api.registerPasskey(ceremonyId, response);
+      setPasskeys((current) => [passkey, ...current]);
+      showToast("Passkey added");
+    } catch (caught) {
+      if (!(caught instanceof DOMException && caught.name === "NotAllowedError")) {
+        setError(errorMessage(caught));
+      }
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const startRenamingPasskey = (id: string, name: string) => {
+    setEditingPasskeyId(id);
+    setPasskeyName(name);
+    setError(null);
+    window.requestAnimationFrame(() => {
+      passkeyNameRef.current?.focus();
+      passkeyNameRef.current?.select();
+    });
+  };
+
+  const cancelRenamingPasskey = () => {
+    if (renamingPasskey) return;
+    setEditingPasskeyId(null);
+    setPasskeyName("");
+  };
+
+  const renamePasskey = async (event: FormEvent, id: string, currentName: string) => {
+    event.preventDefault();
+    const name = passkeyName.trim();
+    if (!name) return;
+    if (name === currentName) {
+      cancelRenamingPasskey();
+      return;
+    }
+    setRenamingPasskey(true);
+    setError(null);
+    try {
+      const { passkey } = await api.renamePasskey(id, name);
+      setPasskeys((current) => current.map((item) => (item.id === id ? passkey : item)));
+      setEditingPasskeyId(null);
+      setPasskeyName("");
+      showToast("Passkey renamed");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setRenamingPasskey(false);
+    }
+  };
+
+  const removePasskey = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!passkeyToRemove || !passkeyPassword) return;
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      await api.deletePasskey(passkeyToRemove, passkeyPassword);
+      setPasskeys((current) => current.filter((passkey) => passkey.id !== passkeyToRemove));
+      showToast("Passkey removed");
+      passkeyDialog.close();
+    } catch (caught) {
+      setPasskeyError(errorMessage(caught));
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const changePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError("The new passwords do not match.");
+      return;
+    }
+    setChangingPassword(true);
+    setError(null);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      showToast("Password changed. Other sessions were signed out");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  return (
+    <section
+      className="settings-section account-settings-section"
+      aria-labelledby="account-heading"
+    >
+      <div className="settings-heading">
+        <h2 id="account-heading">Account security</h2>
+        <p>
+          Your password is the recovery method. Passkeys are optional and can sign you in faster.
+        </p>
+      </div>
+      <div className="account-setting-block">
+        <div className="account-setting-heading">
+          <div>
+            <strong>Passkeys</strong>
+            <p>Use your device lock, fingerprint, face, or security key instead of a password.</p>
+          </div>
+          <div className="passkey-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!passkeysAvailable || loadingPasskeys || passkeyBusy}
+              onClick={() => void addPasskey()}
+            >
+              {passkeyBusy ? (
+                <LoaderCircle className="spin" aria-hidden="true" size={15} />
+              ) : (
+                <KeyRound aria-hidden="true" size={15} />
+              )}
+              Add passkey
+            </button>
+          </div>
+        </div>
+        {!loadingPasskeys && !passkeysAvailable ? (
+          <p className="account-setting-note">Passkeys require a supported browser and HTTPS.</p>
+        ) : null}
+        {passkeys.length > 0 ? (
+          <ul className="passkey-list">
+            {passkeys.map((passkey) => (
+              <li key={passkey.id}>
+                <div className="passkey-copy">
+                  {editingPasskeyId === passkey.id ? (
+                    <form
+                      className="passkey-rename-form"
+                      onSubmit={(event) => void renamePasskey(event, passkey.id, passkey.name)}
+                    >
+                      <label className="sr-only" htmlFor={`passkey-name-${passkey.id}`}>
+                        Passkey name
+                      </label>
+                      <input
+                        ref={passkeyNameRef}
+                        id={`passkey-name-${passkey.id}`}
+                        type="text"
+                        value={passkeyName}
+                        maxLength={80}
+                        required
+                        disabled={renamingPasskey}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape") return;
+                          event.preventDefault();
+                          cancelRenamingPasskey();
+                        }}
+                        onChange={(event) => setPasskeyName(event.target.value)}
+                      />
+                      <button
+                        className="icon-button passkey-save-name"
+                        type="submit"
+                        aria-label="Save passkey name"
+                        disabled={renamingPasskey || !passkeyName.trim()}
+                      >
+                        {renamingPasskey ? (
+                          <LoaderCircle className="spin" aria-hidden="true" size={15} />
+                        ) : (
+                          <Check aria-hidden="true" size={15} />
+                        )}
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label="Cancel renaming passkey"
+                        disabled={renamingPasskey}
+                        onClick={cancelRenamingPasskey}
+                      >
+                        <X aria-hidden="true" size={15} />
+                      </button>
+                    </form>
+                  ) : (
+                    <strong title={passkey.name}>{passkey.name}</strong>
+                  )}
+                  <p>
+                    Added {new Date(passkey.createdAt).toLocaleDateString()}
+                    {passkey.lastUsedAt
+                      ? ` · Last used ${new Date(passkey.lastUsedAt).toLocaleDateString()}`
+                      : " · Never used"}
+                  </p>
+                </div>
+                {editingPasskeyId === passkey.id ? null : (
+                  <div className="passkey-item-actions">
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`Rename ${passkey.name}`}
+                      disabled={passkeyBusy || renamingPasskey}
+                      onClick={() => startRenamingPasskey(passkey.id, passkey.name)}
+                    >
+                      <Pencil aria-hidden="true" size={15} />
+                    </button>
+                    <button
+                      className="icon-button danger-action"
+                      type="button"
+                      aria-label={`Remove ${passkey.name}`}
+                      disabled={passkeyBusy || renamingPasskey}
+                      onClick={() => openRemovePasskeyDialog(passkey.id)}
+                    >
+                      <Trash2 aria-hidden="true" size={15} />
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      <form
+        className="account-setting-block password-change-form"
+        onSubmit={(event) => void changePassword(event)}
+      >
+        <div>
+          <strong>Change password</strong>
+          <p>Use at least 15 characters. Changing it signs out every other browser.</p>
+        </div>
+        <div className="password-change-fields">
+          <label>
+            <span>Current password</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              maxLength={128}
+              required
+              disabled={changingPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>New password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              minLength={15}
+              maxLength={128}
+              required
+              disabled={changingPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Confirm new password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              minLength={15}
+              maxLength={128}
+              required
+              disabled={changingPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </label>
+          <button
+            className="secondary-button"
+            type="submit"
+            disabled={
+              changingPassword ||
+              !currentPassword ||
+              newPassword.length < 15 ||
+              newPassword !== confirmPassword
+            }
+          >
+            {changingPassword ? (
+              <LoaderCircle className="spin" aria-hidden="true" size={15} />
+            ) : null}
+            Change password
+          </button>
+        </div>
+      </form>
+      {error ? (
+        <div className="ai-settings-error" role="alert">
+          <AlertTriangle aria-hidden="true" size={16} />
+          <span>{error}</span>
+        </div>
+      ) : null}
+      <dialog
+        ref={passkeyDialog.dialogRef}
+        className="management-dialog passkey-dialog"
+        aria-labelledby="passkey-dialog-title"
+        data-state={passkeyDialog.closing ? "closing" : "open"}
+        inert={passkeyDialog.closing}
+        onClose={passkeyDialog.handleClose}
+        onCancel={(event) => {
+          if (passkeyBusy) {
+            event.preventDefault();
+            return;
+          }
+          passkeyDialog.handleCancel(event);
+        }}
+      >
+        <form className="passkey-dialog-form" onSubmit={(event) => void removePasskey(event)}>
+          <header className="management-dialog-heading">
+            <span className="dialog-icon" aria-hidden="true">
+              <KeyRound size={16} />
+            </span>
+            <div>
+              <h2 id="passkey-dialog-title">Remove passkey</h2>
+              <p>Confirm this security change with your password.</p>
+            </div>
+            <button
+              className="icon-button"
+              type="button"
+              disabled={passkeyBusy}
+              onClick={closePasskeyDialog}
+              aria-label="Close passkey confirmation"
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          </header>
+
+          <div className="management-dialog-body passkey-dialog-body">
+            <label className="passkey-dialog-field" htmlFor="passkey-password">
+              <span>Current password</span>
+              <input
+                ref={passkeyPasswordRef}
+                id="passkey-password"
+                type="password"
+                autoComplete="current-password"
+                value={passkeyPassword}
+                maxLength={128}
+                required
+                disabled={passkeyBusy}
+                aria-describedby="passkey-password-help"
+                onChange={(event) => {
+                  setPasskeyPassword(event.target.value);
+                  setPasskeyError(null);
+                }}
+              />
+              <p id="passkey-password-help">
+                Your password will continue to work after this passkey is removed.
+              </p>
+            </label>
+            {passkeyError ? (
+              <div className="management-dialog-error" role="alert">
+                <AlertTriangle aria-hidden="true" size={16} />
+                <span>{passkeyError}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <footer className="management-dialog-footer">
+            <span />
+            <div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={passkeyBusy}
+                onClick={closePasskeyDialog}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                type="submit"
+                disabled={passkeyBusy || !passkeyPassword}
+              >
+                {passkeyBusy ? (
+                  <LoaderCircle className="spin" aria-hidden="true" size={15} />
+                ) : null}
+                Remove passkey
+              </button>
+            </div>
+          </footer>
+        </form>
+      </dialog>
+    </section>
+  );
+}
 
 function AiSettingsSection({
   settings,
@@ -826,7 +1271,7 @@ function SettingsPage({
     <div className="management-page settings-page">
       <PageHeader
         title="Settings"
-        description="Set reading behavior, refresh intervals, AI, keyboard shortcuts, and OPML transfer."
+        description="Manage account security, reading behavior, refresh intervals, AI, keyboard shortcuts, and OPML transfer."
         onMenu={onMenu}
         actions={
           saving ? (
@@ -837,6 +1282,7 @@ function SettingsPage({
           ) : undefined
         }
       />
+      {!isDesktopApp() ? <AccountSettingsSection showToast={showToast} /> : null}
       <section className="settings-section" aria-labelledby="appearance-heading">
         <div className="settings-heading">
           <h2 id="appearance-heading">Appearance</h2>

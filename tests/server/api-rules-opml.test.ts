@@ -45,7 +45,7 @@ describe("live API, OPML, and filtering rules", () => {
     const directory = await mkdtemp(join(tmpdir(), "feedfold-auth-test-"));
     cleanups.push(() => rm(directory, { recursive: true, force: true }));
     const database = new AppDatabase(join(directory, "feedfold.db"));
-    const authService = new AuthService(database.auth);
+    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
     const extraction = new ExtractionQueue(database.extractions, 1, 1_000);
     const refresh = new FeedRefreshService(database.feeds, 1, 1_000);
     const app = await createApp({
@@ -575,7 +575,7 @@ describe("live API, OPML, and filtering rules", () => {
     const database = new AppDatabase(join(directory, "feedfold.db"));
     const authService = new AuthService(database.auth);
     expect(
-      authService.register(TEST_ACCOUNTS[0].username, TEST_ACCOUNTS[0].password),
+      await authService.register(TEST_ACCOUNTS[0].username, TEST_ACCOUNTS[0].password),
     ).not.toBeNull();
     const extraction = new ExtractionQueue(database.extractions, 2, 2_000, fetch);
     const refresh = new FeedRefreshService(database.feeds, 2, 2_000, undefined, fetch);

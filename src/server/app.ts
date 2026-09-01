@@ -37,13 +37,14 @@ export interface AppServices {
   feedDiscoveryTimeoutMs?: number;
   staticDir?: string;
   logger?: boolean;
+  publicOrigin?: string;
 }
 
 export async function createApp(services: AppServices): Promise<FastifyInstance> {
   const app = Fastify({
     logger: services.logger ?? false,
     bodyLimit: 10 * 1024 * 1024,
-    trustProxy: true,
+    trustProxy: ["loopback", "linklocal", "uniquelocal"],
   });
   const ai =
     services.aiService ??
@@ -103,18 +104,69 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
     return { status: "ok" };
   });
 
+  app.addHook("onSend", async (request, reply) => {
+    reply.header(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: http: https:",
+        "media-src 'self' blob: http: https:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "frame-src 'self' https://www.youtube.com",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+      ].join("; "),
+    );
+    reply.header(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self)",
+    );
+    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "DENY");
+    if (request.protocol === "https" || services.publicOrigin?.startsWith("https://")) {
+      reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+  });
+
   app.addHook("onRequest", async (request, reply) => {
     if (!request.url.startsWith("/api/")) return;
     reply.header("Cache-Control", "no-store");
     const path = request.url.split("?", 1)[0];
-    if (path === "/api/auth/login" || path === "/api/auth/register" || path === "/api/auth/session")
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+      const expectedOrigin =
+        services.publicOrigin ??
+        `${request.protocol}://${request.headers.host ?? request.hostname}`;
+      if (request.headers.origin && request.headers.origin !== new URL(expectedOrigin).origin) {
+        return reply.code(403).send({ error: "This request is not allowed." });
+      }
+      if (request.headers["sec-fetch-site"] === "cross-site") {
+        return reply.code(403).send({ error: "This request is not allowed." });
+      }
+    }
+    if (
+      path === "/api/auth/config" ||
+      path === "/api/auth/login" ||
+      path === "/api/auth/register" ||
+      path === "/api/auth/session" ||
+      path === "/api/auth/passkey/options" ||
+      path === "/api/auth/passkey"
+    )
       return;
     const user = services.authService.userForToken(sessionToken(request.headers.cookie));
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });
     requestUsers.set(request, user);
   });
 
-  await app.register(authRoutes, { authService: services.authService });
+  await app.register(authRoutes, {
+    authService: services.authService,
+    configuredOrigin: services.publicOrigin,
+  });
   await app.register(bootstrapRoutes, {
     bootstrap: services.database.bootstrap,
     ai,

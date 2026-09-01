@@ -70,7 +70,9 @@ describe("database migrations", () => {
           "<blockquote><p>“Publisher punctuation.”</p></blockquote>",
           articleId,
         );
-      database.connection.prepare("DELETE FROM migrations WHERE version >= 34").run();
+      database.connection
+        .prepare("DELETE FROM migrations WHERE version >= 34 AND version < 35")
+        .run();
 
       migrateDatabase(database.connection, 180);
 
@@ -139,7 +141,9 @@ describe("database migrations", () => {
            WHERE feed_id = ?`,
         )
         .run(feed.id);
-      database.connection.prepare("DELETE FROM migrations WHERE version >= 29").run();
+      database.connection
+        .prepare("DELETE FROM migrations WHERE version >= 29 AND version < 35")
+        .run();
       removeSavedArticleTimestampMigration(database.connection);
       database.connection.exec("ALTER TABLE feeds DROP COLUMN last_scheduled_observation_at");
       database.connection.exec("ALTER TABLE feeds DROP COLUMN activity_rate_per_hour");
@@ -153,14 +157,14 @@ describe("database migrations", () => {
     }
   });
 
-  it("cuts stored summaries over to the date-aware grounded harness", () => {
+  it("cuts stored summaries over to the date-aware grounded harness", async () => {
     const database = new AppDatabase(":memory:");
     try {
-      const auth = new AuthService(database.auth);
-      const reader = auth.register("reader", "reader-password")?.user;
-      const partner = auth.register("partner", "partner-password")?.user;
-      const feedReader = auth.register("feed-reader", "feed-reader-password")?.user;
-      const claudeReader = auth.register("claude-reader", "claude-reader-password")?.user;
+      const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+      const reader = (await auth.register("reader", "reader-password"))?.user;
+      const partner = (await auth.register("partner", "partner-password"))?.user;
+      const feedReader = (await auth.register("feed-reader", "feed-reader-password"))?.user;
+      const claudeReader = (await auth.register("claude-reader", "claude-reader-password"))?.user;
       if (!reader || !partner || !feedReader || !claudeReader) {
         throw new Error("Test accounts could not be created");
       }
@@ -252,7 +256,9 @@ Return only the summary in plain text.`,
         usage: { inputTokens: 10, outputTokens: 5 },
       });
 
-      database.connection.prepare("DELETE FROM migrations WHERE version >= 22").run();
+      database.connection
+        .prepare("DELETE FROM migrations WHERE version >= 22 AND version < 35")
+        .run();
       removeSavedArticleTimestampMigration(database.connection);
       database.connection.exec("ALTER TABLE settings DROP COLUMN show_youtube_descriptions");
       database.connection.exec("DROP TABLE ignored_feed_articles");
@@ -446,11 +452,11 @@ Return only the summary in plain text.`,
 
     const database = new AppDatabase(path);
     try {
-      const authService = new AuthService(database.auth);
-      const registration = authService.register("reader", "reader-password");
+      const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+      const registration = await authService.register("reader", "reader-password");
       expect(registration?.user).toEqual({ id: 1, username: "reader" });
-      expect(authService.login("reader", "wrong-password")).toBeNull();
-      expect(authService.login("READER", "reader-password")?.user).toEqual({
+      expect(await authService.login("reader", "wrong-password")).toBeNull();
+      expect((await authService.login("READER", "reader-password"))?.user).toEqual({
         id: 1,
         username: "reader",
       });
@@ -488,10 +494,10 @@ Return only the summary in plain text.`,
         .prepare("SELECT username, password_hash AS passwordHash FROM users WHERE id = 1")
         .get() as { username: string; passwordHash: string };
       expect(storedUser).toMatchObject({ username: "reader" });
-      expect(storedUser.passwordHash).toMatch(/^scrypt\$/);
+      expect(storedUser.passwordHash).toMatch(/^\$argon2id\$/);
       expect(storedUser.passwordHash).not.toContain("reader-password");
 
-      const partner = authService.register("partner", "partner-password");
+      const partner = await authService.register("partner", "partner-password");
       expect(partner?.user).toEqual({ id: 2, username: "partner" });
       expect(database.feeds.listFeeds(2)).toEqual([]);
       expect(database.settings.getSettings(2)).toEqual({
@@ -505,7 +511,7 @@ Return only the summary in plain text.`,
         translationPrompt: DEFAULT_ARTICLE_TRANSLATION_PROMPT,
         customPrompts: DEFAULT_CUSTOM_PROMPTS,
       });
-      expect(authService.register("READER", "another-password")).toBeNull();
+      expect(await authService.register("READER", "another-password")).toBeNull();
 
       expect(database.settings.getSettings(1)).toMatchObject({ markReadOnScroll: true });
       expect(
@@ -599,7 +605,7 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        34,
+        36,
       );
       expect(
         database.connection.prepare("SELECT starred_at FROM articles WHERE id = 3").pluck().get(),
@@ -647,12 +653,12 @@ Return only the summary in plain text.`,
     const reopened = new AppDatabase(path);
     try {
       const authService = new AuthService(reopened.auth);
-      expect(authService.login("reader", "reader-password")?.user).toEqual({
+      expect((await authService.login("reader", "reader-password"))?.user).toEqual({
         id: 1,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        34,
+        36,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

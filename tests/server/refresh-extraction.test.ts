@@ -166,7 +166,7 @@ describe("feed refresh and full-text extraction", () => {
     const extraction = new ExtractionQueue(database.extractions, 2, 2_000, fetch);
     const refresh = new FeedRefreshService(database.feeds, 2, 2_000, undefined, fetch);
     const authService = new AuthService(database.auth);
-    expect(authService.register(TEST_ACCOUNT.username, TEST_ACCOUNT.password)).not.toBeNull();
+    expect(await authService.register(TEST_ACCOUNT.username, TEST_ACCOUNT.password)).not.toBeNull();
     const app = await createApp({
       database,
       authService,
@@ -551,9 +551,9 @@ describe("feed refresh and full-text extraction", () => {
   it("skips exact URL or title duplicates across feeds within the configured window", async () => {
     const database = await temporaryDatabase();
     cleanups.push(() => database.close());
-    const authService = new AuthService(database.auth);
-    const reader = authService.register("reader", "reader-password")?.user;
-    const partner = authService.register("partner", "partner-password")?.user;
+    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const reader = (await authService.register("reader", "reader-password"))?.user;
+    const partner = (await authService.register("partner", "partner-password"))?.user;
     if (!reader || !partner) throw new Error("Expected test accounts");
 
     const article = (externalId: string, title: string, url: string) => ({
@@ -873,7 +873,7 @@ describe("feed refresh and full-text extraction", () => {
     const extraction = new ExtractionQueue(database.extractions, 1, 2_000, fetch);
     const refresh = new FeedRefreshService(database.feeds, 1, 2_000, undefined, fetch);
     const authService = new AuthService(database.auth);
-    expect(authService.register(TEST_ACCOUNT.username, TEST_ACCOUNT.password)).not.toBeNull();
+    expect(await authService.register(TEST_ACCOUNT.username, TEST_ACCOUNT.password)).not.toBeNull();
     const app = await createApp({
       database,
       authService,

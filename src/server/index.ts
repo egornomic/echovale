@@ -19,6 +19,30 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   return parsed;
 }
 
+function configuredPublicOrigin(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const origin = new URL(value);
+  if (
+    !["http:", "https:"].includes(origin.protocol) ||
+    origin.username ||
+    origin.password ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash
+  ) {
+    throw new Error("FEEDFOLD_PUBLIC_ORIGIN must be an http(s) origin without a path");
+  }
+  if (
+    origin.protocol !== "https:" &&
+    origin.hostname !== "localhost" &&
+    origin.hostname !== "127.0.0.1" &&
+    origin.hostname !== "::1"
+  ) {
+    throw new Error("FEEDFOLD_PUBLIC_ORIGIN must use HTTPS unless it is localhost");
+  }
+  return origin.origin;
+}
+
 const host = process.env.HOST ?? "127.0.0.1";
 const port = positiveInteger(process.env.PORT, 3000, "PORT");
 const configuredDatabasePath = process.env.DATABASE_PATH;
@@ -49,10 +73,13 @@ const aiRequestTimeoutMs = positiveInteger(
   "AI_REQUEST_TIMEOUT_MS",
 );
 const staticDir = fileURLToPath(new URL("../client", import.meta.url));
+const publicOrigin = configuredPublicOrigin(process.env.FEEDFOLD_PUBLIC_ORIGIN);
 
 mkdirSync(dirname(databasePath), { recursive: true });
 const database = new AppDatabase(databasePath, pollIntervalMinutes);
-const authService = new AuthService(database.auth, pollIntervalMinutes);
+const authService = new AuthService(database.auth, pollIntervalMinutes, {
+  allowPublicRegistration: process.env.FEEDFOLD_ALLOW_PUBLIC_REGISTRATION === "1",
+});
 const extractionQueue = new ExtractionQueue(database.extractions, 2, articleFetchTimeoutMs);
 const webFeedService = new WebFeedService({ timeoutMs: webFeedLoadTimeoutMs });
 const refreshService = new FeedRefreshService(
@@ -75,6 +102,7 @@ const app = await createApp({
   feedDiscoveryTimeoutMs: feedFetchTimeoutMs,
   staticDir,
   logger: process.env.NODE_ENV === "production",
+  publicOrigin,
 });
 
 let shuttingDown = false;

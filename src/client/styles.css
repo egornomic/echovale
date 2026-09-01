@@ -917,6 +917,27 @@ kbd {
   margin-top: 3px;
 }
 
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  color: var(--muted);
+  font-size: var(--type-label);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+  content: "";
+}
+
+.passkey-login-button {
+  width: 100%;
+}
+
 .auth-switch {
   display: flex;
   align-items: center;
@@ -955,6 +976,13 @@ kbd {
   display: flex;
   align-items: center;
   color: var(--text-secondary);
+}
+
+.registration-closed {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: var(--type-supporting);
+  text-align: center;
 }
 
 /* Reader toolbar */

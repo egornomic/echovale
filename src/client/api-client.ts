@@ -1,3 +1,9 @@
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from "@simplewebauthn/browser";
 import type { DesktopOperation } from "../shared/desktop.js";
 import type {
   AiArticleSourceKind,
@@ -35,6 +41,20 @@ export interface ApiRuntime {
   ): Promise<T>;
   subscribeReaderDataInvalidations(listener: () => void): () => void;
   exportOpml(): Promise<void>;
+}
+
+export interface AuthConfig {
+  registrationAvailable: boolean;
+  passkeysAvailable: boolean;
+}
+
+export interface PasskeySummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  deviceType: string;
+  backedUp: boolean;
 }
 
 function queryString(query: ArticleQuery): string {
@@ -84,6 +104,82 @@ export function createApiClient(runtime: ApiRuntime) {
     },
 
     logout: () => request<void>("logout", undefined, "/api/auth/logout", { method: "POST" }),
+
+    authConfig: () => request<AuthConfig>("authConfig", undefined, "/api/auth/config"),
+
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<void>("changePassword", { currentPassword, newPassword }, "/api/auth/password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      }),
+
+    async passkeys(): Promise<PasskeySummary[]> {
+      const body = await request<{ passkeys: PasskeySummary[] }>(
+        "passkeys",
+        undefined,
+        "/api/auth/passkeys",
+      );
+      return body.passkeys;
+    },
+
+    passkeyRegistrationOptions: () =>
+      request<{
+        ceremonyId: string;
+        options: PublicKeyCredentialCreationOptionsJSON;
+      }>("passkeyRegistrationOptions", undefined, "/api/auth/passkeys/options", {
+        method: "POST",
+      }),
+
+    registerPasskey: (ceremonyId: string, response: RegistrationResponseJSON) =>
+      request<{ passkey: PasskeySummary }>(
+        "registerPasskey",
+        { ceremonyId, response },
+        "/api/auth/passkeys",
+        {
+          method: "POST",
+          body: JSON.stringify({ ceremonyId, response }),
+        },
+      ),
+
+    renamePasskey: (id: string, name: string) =>
+      request<{ passkey: PasskeySummary }>(
+        "renamePasskey",
+        { id, name },
+        `/api/auth/passkeys/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify({ name }) },
+      ),
+
+    deletePasskey: (id: string, password: string) =>
+      request<void>(
+        "deletePasskey",
+        { id, password },
+        `/api/auth/passkeys/${encodeURIComponent(id)}`,
+        { method: "DELETE", body: JSON.stringify({ password }) },
+      ),
+
+    passkeyAuthenticationOptions: () =>
+      request<{
+        ceremonyId: string;
+        options: PublicKeyCredentialRequestOptionsJSON;
+      }>("passkeyAuthenticationOptions", undefined, "/api/auth/passkey/options", {
+        method: "POST",
+      }),
+
+    async passkeyLogin(
+      ceremonyId: string,
+      response: AuthenticationResponseJSON,
+    ): Promise<SessionUser> {
+      const body = await request<{ user: SessionUser }>(
+        "passkeyLogin",
+        { ceremonyId, response },
+        "/api/auth/passkey",
+        {
+          method: "POST",
+          body: JSON.stringify({ ceremonyId, response }),
+        },
+      );
+      return body.user;
+    },
 
     bootstrap: (signal?: AbortSignal) =>
       request<BootstrapData>("bootstrap", undefined, "/api/bootstrap", { signal }),

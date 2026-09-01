@@ -357,7 +357,9 @@ describe("web feed persistence", () => {
     database.connection
       .prepare("UPDATE feeds SET last_attempt_at = ?, next_poll_at = ? WHERE id = ?")
       .run("2026-07-27T12:00:00.000Z", "2026-07-27T12:20:00.000Z", webFeed.id);
-    database.connection.prepare("DELETE FROM migrations WHERE version >= 20").run();
+    database.connection
+      .prepare("DELETE FROM migrations WHERE version >= 20 AND version < 35")
+      .run();
     removeSavedArticleTimestampMigration(database.connection);
     database.connection.exec("ALTER TABLE settings DROP COLUMN show_youtube_descriptions");
     database.connection.exec("DROP TABLE ignored_feed_articles");

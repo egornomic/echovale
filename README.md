@@ -74,9 +74,9 @@ You need Docker Engine with Docker Compose v2.
    docker compose up -d --build
    ```
 
-2. Open `http://127.0.0.1:3000/`.
+2. Open `http://localhost:3000/`. Using `localhost` also enables passkeys during local access.
 
-3. Choose **Create an account**. Registration signs in the new account immediately. feedfold hashes passwords before storing them in SQLite.
+3. Choose **Create the first account**. Setup signs in the new account immediately and then closes public account creation.
 
 4. Check that the container is ready:
 
@@ -110,17 +110,13 @@ Adding `--volumes` to this command permanently deletes the SQLite database.
 
 Do not scale feedfold to multiple application replicas. Background polling and SQLite ownership are designed for one process.
 
-### Add another account
-
-Sign out, choose **Create an account**, and register the next user. Accounts are isolated from each other.
-
-When you upgrade an existing single-account database, the first account registered after the upgrade receives its feeds, folders, rules, settings, and article state. Later accounts begin with an empty reading queue.
-
 ## Keep access private
 
-feedfold uses password authentication, but anyone who can reach the sign-in screen can register. Compose therefore publishes the service on host loopback by default.
+Compose publishes feedfold on host loopback by default. The first account can be created only while no account exists; account creation closes as soon as setup succeeds.
 
-For access from another device, use a trusted private network or an HTTPS reverse proxy with its own access controls. Do not publish feedfold through Tailscale Funnel or an unrestricted public proxy unless you intend to allow open registration.
+For access from another device, use a trusted private network or an HTTPS reverse proxy. Set `FEEDFOLD_PUBLIC_ORIGIN` to the exact external HTTPS origin, such as `https://reader.example.com`. This fixes the passkey relying-party identity, enables secure cookies, and rejects browser requests from other origins.
+
+If you deliberately want anyone who can reach a public server to create an isolated account, set `FEEDFOLD_ALLOW_PUBLIC_REGISTRATION=1`. Leave it unset for personal or private deployments.
 
 ### Publish feedfold to a Tailscale network
 

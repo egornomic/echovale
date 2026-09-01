@@ -1,5 +1,6 @@
-import { LoaderCircle, LogIn, UserPlus } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
+import { KeyRound, LoaderCircle, LogIn, UserPlus } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import type { SessionUser } from "../shared/types";
 import { api, errorMessage } from "./api";
 import { BrandIdentity } from "./brand";
@@ -19,7 +20,25 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [usingPasskey, setUsingPasskey] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registrationAvailable, setRegistrationAvailable] = useState(false);
+  const [passkeysAvailable, setPasskeysAvailable] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void api
+      .authConfig()
+      .then((config) => {
+        if (!active) return;
+        setRegistrationAvailable(config.registrationAvailable);
+        setPasskeysAvailable(config.passkeysAvailable && browserSupportsWebAuthn());
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -42,6 +61,24 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
     setMode((current) => (current === "login" ? "register" : "login"));
     setPassword("");
     setError(null);
+  };
+
+  const signInWithPasskey = async () => {
+    setUsingPasskey(true);
+    setError(null);
+    try {
+      const { ceremonyId, options } = await api.passkeyAuthenticationOptions();
+      const response = await startAuthentication({ optionsJSON: options });
+      onAuthenticated(await api.passkeyLogin(ceremonyId, response));
+    } catch (caught) {
+      setError(
+        caught instanceof DOMException && caught.name === "NotAllowedError"
+          ? "Passkey sign-in was cancelled or timed out."
+          : errorMessage(caught),
+      );
+    } finally {
+      setUsingPasskey(false);
+    }
   };
 
   const registering = mode === "register";
@@ -72,6 +109,9 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
               autoCapitalize="none"
               spellCheck={false}
               required
+              minLength={registering ? 3 : undefined}
+              maxLength={registering ? 32 : 80}
+              pattern={registering ? "[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?" : undefined}
               value={username}
               onChange={(event) => setUsername(event.target.value)}
             />
@@ -84,6 +124,8 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
               type="password"
               autoComplete={registering ? "new-password" : "current-password"}
               required
+              minLength={registering ? 15 : undefined}
+              maxLength={128}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
@@ -102,12 +144,36 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
             {submitting ? progressLabel : actionLabel}
           </button>
         </form>
-        <div className="auth-switch">
-          <span>{registering ? "Already have an account?" : "Need an account?"}</span>
-          <button type="button" onClick={switchMode} disabled={submitting}>
-            {registering ? "Sign in" : "Create an account"}
-          </button>
-        </div>
+        {!registering && passkeysAvailable ? (
+          <>
+            <div className="auth-divider">
+              <span>or</span>
+            </div>
+            <button
+              className="secondary-button passkey-login-button"
+              type="button"
+              disabled={submitting || usingPasskey}
+              onClick={() => void signInWithPasskey()}
+            >
+              {usingPasskey ? (
+                <LoaderCircle className="spin" aria-hidden="true" size={16} />
+              ) : (
+                <KeyRound aria-hidden="true" size={16} />
+              )}
+              {usingPasskey ? "Waiting for passkey" : "Sign in with a passkey"}
+            </button>
+          </>
+        ) : null}
+        {registering || registrationAvailable ? (
+          <div className="auth-switch">
+            <span>{registering ? "Already have an account?" : "Setting up this server?"}</span>
+            <button type="button" onClick={switchMode} disabled={submitting || usingPasskey}>
+              {registering ? "Sign in" : "Create the first account"}
+            </button>
+          </div>
+        ) : (
+          <p className="registration-closed">Account creation is closed on this server.</p>
+        )}
       </section>
     </main>
   );

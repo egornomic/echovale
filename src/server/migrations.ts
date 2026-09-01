@@ -867,6 +867,49 @@ const migrations: Migration[] = [
     sql: "",
     after: (database) => recleanStructuredArticleHtml(database, ["blockquote"]),
   },
+  {
+    sql: `
+      ALTER TABLE users ADD COLUMN webauthn_user_id BLOB;
+      UPDATE users SET webauthn_user_id = randomblob(32);
+      CREATE UNIQUE INDEX users_webauthn_user_id_idx ON users(webauthn_user_id);
+
+      ALTER TABLE sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT '';
+      UPDATE sessions SET last_seen_at = created_at;
+
+      CREATE TABLE passkeys (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        public_key BLOB NOT NULL,
+        counter INTEGER NOT NULL,
+        device_type TEXT NOT NULL,
+        backed_up INTEGER NOT NULL,
+        transports_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+
+      CREATE INDEX passkeys_user_id_idx ON passkeys(user_id);
+
+      CREATE TABLE auth_challenges (
+        id_hash TEXT PRIMARY KEY,
+        challenge TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('passkey-registration', 'passkey-authentication')),
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        origin TEXT NOT NULL,
+        rp_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+
+      CREATE INDEX auth_challenges_expires_at_idx ON auth_challenges(expires_at);
+    `,
+  },
+  {
+    sql: `
+      ALTER TABLE passkeys ADD COLUMN name TEXT NOT NULL DEFAULT 'Passkey';
+      UPDATE passkeys
+      SET name = CASE backed_up WHEN 1 THEN 'Synced passkey' ELSE 'Device passkey' END;
+    `,
+  },
 ];
 
 export function migrateDatabase(
@@ -876,10 +919,13 @@ export function migrateDatabase(
   database.exec(
     "CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
   );
-  const current = database
-    .prepare("SELECT COALESCE(MAX(version), 0) AS version FROM migrations")
-    .get() as { version: number };
-  for (let index = current.version; index < migrations.length; index += 1) {
+  const appliedVersions = new Set(
+    (database.prepare("SELECT version FROM migrations").all() as Array<{ version: number }>).map(
+      ({ version }) => version,
+    ),
+  );
+  for (let index = 0; index < migrations.length; index += 1) {
+    if (appliedVersions.has(index + 1)) continue;
     const migration = migrations[index];
     const apply = database.transaction(() => {
       const sql =

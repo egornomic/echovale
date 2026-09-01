@@ -230,7 +230,7 @@ async function start() {
 
   const [apiPort, webPort] = await Promise.all([availablePort(), availablePort()]);
   const apiOrigin = `http://127.0.0.1:${apiPort}`;
-  const readyUrl = `http://127.0.0.1:${webPort}/`;
+  const readyUrl = `http://localhost:${webPort}/`;
   const healthUrl = `${apiOrigin}/health`;
   mkdirSync(runtimePath, { recursive: true });
   await copyMainDatabase();

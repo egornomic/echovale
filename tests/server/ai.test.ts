@@ -26,12 +26,16 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-function databaseWithUsers(): { database: AppDatabase; readerId: number; partnerId: number } {
+async function databaseWithUsers(): Promise<{
+  database: AppDatabase;
+  readerId: number;
+  partnerId: number;
+}> {
   const database = new AppDatabase(":memory:");
   cleanups.push(() => database.close());
-  const auth = new AuthService(database.auth);
-  const reader = auth.register("reader", "reader-password")?.user;
-  const partner = auth.register("partner", "partner-password")?.user;
+  const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+  const reader = (await auth.register("reader", "reader-password"))?.user;
+  const partner = (await auth.register("partner", "partner-password"))?.user;
   if (!reader || !partner) throw new Error("Test accounts could not be created");
   return { database, readerId: reader.id, partnerId: partner.id };
 }
@@ -280,8 +284,8 @@ async function liveGeminiProvider(): Promise<{
 }
 
 describe("AI article summaries", () => {
-  it("encrypts provider keys per account and never exposes them through settings", () => {
-    const { database, readerId, partnerId } = databaseWithUsers();
+  it("encrypts provider keys per account and never exposes them through settings", async () => {
+    const { database, readerId, partnerId } = await databaseWithUsers();
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
     const service = new AiService(database, { credentialCipher: cipher });
@@ -339,7 +343,7 @@ describe("AI article summaries", () => {
   });
 
   it("requires a Google Gemini key for YouTube summaries", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const articleId = addYouTubeArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -358,7 +362,7 @@ describe("AI article summaries", () => {
   });
 
   it("sends the native YouTube video to Gemini when its key is configured", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const articleId = addYouTubeArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -469,7 +473,7 @@ describe("AI article summaries", () => {
   });
 
   it("uses the summary model for cached translations in the configured account language", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const { articleId } = addArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -513,7 +517,7 @@ describe("AI article summaries", () => {
   });
 
   it("uses live Google Search for fact-checks without caching grounded results", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const { articleId } = addArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -575,7 +579,7 @@ describe("AI article summaries", () => {
   });
 
   it("uses native OpenAI web search for fact-checks", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const { articleId } = addArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -618,7 +622,7 @@ describe("AI article summaries", () => {
   });
 
   it("uses native Anthropic web search and continues paused fact-checks", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const { articleId } = addArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -665,7 +669,7 @@ describe("AI article summaries", () => {
   });
 
   it("wraps account prompts in the shared harness and regenerates after prompt changes", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const { articleId } = addArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -757,8 +761,8 @@ describe("AI article summaries", () => {
     ).rejects.toMatchObject({ code: "CUSTOM_PROMPT_NOT_FOUND", statusCode: 404 });
   });
 
-  it("keeps a summary for metadata-only refreshes and invalidates it when source text changes", () => {
-    const { database, readerId, partnerId } = databaseWithUsers();
+  it("keeps a summary for metadata-only refreshes and invalidates it when source text changes", async () => {
+    const { database, readerId, partnerId } = await databaseWithUsers();
     const { feedId, articleId } = addArticle(database, readerId);
     const article = database.ai.getArticleForAi(readerId, articleId);
     if (!article) throw new Error("Test article is unavailable");
@@ -812,7 +816,7 @@ describe("AI article summaries", () => {
   });
 
   it("explains whether the provider selection or its API key is missing", async () => {
-    const { database, readerId } = databaseWithUsers();
+    const { database, readerId } = await databaseWithUsers();
     const { articleId } = addArticle(database, readerId);
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
@@ -841,8 +845,8 @@ describe("AI article summaries", () => {
     });
   });
 
-  it("stores any provider model ID entered by the user", () => {
-    const { database, readerId } = databaseWithUsers();
+  it("stores any provider model ID entered by the user", async () => {
+    const { database, readerId } = await databaseWithUsers();
     const cipher = CredentialCipher.fromHex(CREDENTIAL_KEY);
     if (!cipher) throw new Error("Credential cipher was not created");
     const service = new AiService(database, { credentialCipher: cipher });

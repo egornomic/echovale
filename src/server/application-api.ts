@@ -176,6 +176,18 @@ export class ApplicationApi {
         return { user: LOCAL_USER };
       case "logout":
         return undefined;
+      case "authConfig":
+        return { registrationAvailable: false, passkeysAvailable: false };
+      case "passkeys":
+        return { passkeys: [] };
+      case "changePassword":
+      case "passkeyRegistrationOptions":
+      case "registerPasskey":
+      case "renamePasskey":
+      case "deletePasskey":
+      case "passkeyAuthenticationOptions":
+      case "passkeyLogin":
+        throw new ApplicationApiError(400, "Account authentication is managed by macOS.");
       case "bootstrap":
         return {
           ...this.#database.bootstrap.getBootstrap(this.#userId),

@@ -140,7 +140,7 @@ describe("authenticated web-feed API", () => {
 
     const database = new AppDatabase(":memory:");
     cleanups.push(() => database.close());
-    const authService = new AuthService(database.auth);
+    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
     const extractionQueue = new ExtractionQueue(database.extractions, 1, 4_000);
     cleanups.push(() => extractionQueue.stop());
     const webFeedService = new WebFeedService({
@@ -196,7 +196,7 @@ describe("authenticated web-feed API", () => {
       url: "/api/web-feeds/analyze",
       payload: { url: pageUrl },
     });
-    expect(analysisResponse.statusCode).toBe(200);
+    expect(analysisResponse.statusCode, analysisResponse.body).toBe(200);
     const analysis = analysisResponse.json<WebFeedAnalysis>();
     expect(analysis).toMatchObject({
       pageUrl: `${pageUrl}/`,

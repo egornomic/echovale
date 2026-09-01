@@ -68,9 +68,9 @@ function eventReader(reader: ReadableStreamDefaultReader<Uint8Array>): () => Pro
 describe("feed refresh delivery events", () => {
   it("notifies only the owning account after delivered articles are committed", async () => {
     const database = new AppDatabase(":memory:");
-    const auth = new AuthService(database.auth);
-    const firstUser = auth.register("first-reader", "reader-password")?.user;
-    const secondUser = auth.register("second-reader", "reader-password")?.user;
+    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const firstUser = (await auth.register("first-reader", "reader-password"))?.user;
+    const secondUser = (await auth.register("second-reader", "reader-password"))?.user;
     if (!firstUser || !secondUser) throw new Error("Test accounts were not created");
     const feed = database.feeds.createFeed(firstUser.id, {
       title: "First reader's feed",

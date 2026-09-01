@@ -127,9 +127,9 @@ describe("X article media", () => {
   it("resolves a quoted video for an owned article and exposes authenticated URLs", async () => {
     const directory = await mkdtemp(join(tmpdir(), "feedfold-x-media-test-"));
     const database = new AppDatabase(join(directory, "feedfold.db"));
-    const authService = new AuthService(database.auth);
-    const reader = authService.register("reader", "reader-password");
-    const otherReader = authService.register("other", "reader-password");
+    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const reader = await authService.register("reader", "reader-password");
+    const otherReader = await authService.register("other", "reader-password");
     if (!reader || !otherReader) throw new Error("Expected test accounts");
 
     const feed = database.feeds.createFeed(reader.user.id, {
