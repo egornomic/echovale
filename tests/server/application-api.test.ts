@@ -41,9 +41,15 @@ describe("local application API", () => {
       () => Promise.all([refresh.stop(), extraction.stop()]).then(() => undefined),
     );
 
+    database.connection
+      .prepare("UPDATE users SET last_active_at = '2000-01-01T00:00:00.000Z' WHERE id = 1")
+      .run();
     await expect(application.invoke({ operation: "session" })).resolves.toEqual({
       user: { id: 1, username: "On this Mac" },
     });
+    expect(
+      database.connection.prepare("SELECT last_active_at FROM users WHERE id = 1").pluck().get(),
+    ).not.toBe("2000-01-01T00:00:00.000Z");
 
     const folder = (await application.invoke({
       operation: "createFolder",

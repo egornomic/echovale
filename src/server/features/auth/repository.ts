@@ -132,12 +132,25 @@ export class AuthRepository {
   }
 
   insertSession(userId: number, session: StoredSession): void {
-    this.sqlite
-      .prepare(
-        `INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(session.tokenHash, userId, session.createdAt, session.lastSeenAt, session.expiresAt);
+    this.sqlite.transaction(() => {
+      this.sqlite
+        .prepare(
+          `INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(session.tokenHash, userId, session.createdAt, session.lastSeenAt, session.expiresAt);
+      this.sqlite
+        .prepare("UPDATE users SET last_active_at = ? WHERE id = ?")
+        .run(session.lastSeenAt, userId);
+    })();
+  }
+
+  touchUserActivity(userId: number, at: string, touchBefore: string): boolean {
+    return (
+      this.sqlite
+        .prepare("UPDATE users SET last_active_at = ? WHERE id = ? AND last_active_at <= ?")
+        .run(at, userId, touchBefore).changes > 0
+    );
   }
 
   userForTokenHash(
@@ -159,6 +172,7 @@ export class AuthRepository {
     this.sqlite
       .prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ? AND last_seen_at <= ?")
       .run(at, hash, touchBefore);
+    this.touchUserActivity(row.id, at, touchBefore);
     return row;
   }
 

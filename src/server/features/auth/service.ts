@@ -10,6 +10,7 @@ import {
 } from "@simplewebauthn/server";
 import argon2 from "argon2";
 import { normalizeFeedPollInterval, type SessionUser } from "../../../shared/types.js";
+import { accountActivityCutoff, accountActivityTouchBefore } from "../../account-activity.js";
 import type {
   AuthRepository,
   StoredAuthChallenge,
@@ -19,8 +20,6 @@ import type {
 
 const SESSION_COOKIE = "feedfold_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
-const SESSION_IDLE_SECONDS = 60 * 60 * 24 * 7;
-const SESSION_TOUCH_SECONDS = 60 * 5;
 const CHALLENGE_SECONDS = 60 * 5;
 const ARGON2_OPTIONS = {
   type: argon2.argon2id,
@@ -83,10 +82,6 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function before(seconds: number): string {
-  return new Date(Date.now() - seconds * 1_000).toISOString();
-}
-
 function passkeySummary(passkey: StoredPasskey): PasskeySummary {
   return {
     id: passkey.id,
@@ -117,7 +112,8 @@ export class AuthService {
     options: AuthOptions = {},
   ) {
     this.allowPublicRegistration = options.allowPublicRegistration ?? false;
-    this.repository.deleteExpiredSessions(now(), before(SESSION_IDLE_SECONDS));
+    const current = now();
+    this.repository.deleteExpiredSessions(current, accountActivityCutoff(current));
     this.dummyPasswordHash = hashPassword(randomBytes(32).toString("base64url"));
   }
 
@@ -172,11 +168,12 @@ export class AuthService {
 
   userForToken(token: string | null): SessionUser | null {
     if (!token) return null;
+    const current = now();
     return this.repository.userForTokenHash(
       tokenHash(token),
-      now(),
-      before(SESSION_IDLE_SECONDS),
-      before(SESSION_TOUCH_SECONDS),
+      current,
+      accountActivityCutoff(current),
+      accountActivityTouchBefore(current),
     );
   }
 

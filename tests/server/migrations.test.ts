@@ -211,7 +211,7 @@ describe("database migrations", () => {
            WHERE source_id = (SELECT source_id FROM feeds WHERE id = ?)`,
         )
         .run(feed.id);
-      database.connection.prepare("DELETE FROM migrations WHERE version >= 38").run();
+      database.connection.prepare("DELETE FROM migrations WHERE version = 38").run();
 
       migrateDatabase(database.connection, 180);
 
@@ -320,7 +320,7 @@ Return only the summary in plain text.`,
         usage: { inputTokens: 10, outputTokens: 5 },
       });
 
-      database.connection.prepare("DELETE FROM migrations WHERE version >= 38").run();
+      database.connection.prepare("DELETE FROM migrations WHERE version = 38").run();
       migrateDatabase(database.connection, 20);
 
       expect(database.settings.getSettings(reader.id).summaryPrompt).toBe(
@@ -665,8 +665,11 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        38,
+        39,
       );
+      expect(
+        database.connection.prepare("SELECT last_active_at FROM users WHERE id = 1").pluck().get(),
+      ).not.toBe("");
       expect(
         database.connection
           .prepare("SELECT starred_at FROM feed_articles WHERE article_id = 3")
@@ -721,7 +724,7 @@ Return only the summary in plain text.`,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        38,
+        39,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

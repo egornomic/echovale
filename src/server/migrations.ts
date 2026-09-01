@@ -1282,6 +1282,12 @@ const migrations: Migration[] = [
       WHERE provider = 'anthropic' AND model = 'claude-haiku-4-5-20251001';
     `,
   },
+  {
+    sql: `
+      ALTER TABLE users ADD COLUMN last_active_at TEXT NOT NULL DEFAULT '';
+      UPDATE users SET last_active_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    `,
+  },
 ];
 
 export function migrateDatabase(

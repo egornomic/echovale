@@ -6,6 +6,7 @@ import type {
   FeedPollIntervalMinutes,
   WebFeedConfig,
 } from "../../../shared/types.js";
+import { accountActivityCutoff } from "../../account-activity.js";
 import type { FolderRepository } from "../folders/repository.js";
 import {
   type FeedRecord,
@@ -308,18 +309,20 @@ export class FeedRepository {
   }
 
   getDueFeedIds(at = now()): number[] {
+    const activeAfter = accountActivityCutoff(at);
     return (
       this.sqlite
         .prepare(
           `SELECT MIN(feeds.id) AS id
            FROM feed_sources
            JOIN feeds ON feeds.source_id = feed_sources.id AND feeds.paused = 0
+           JOIN users ON users.id = feeds.user_id AND users.last_active_at > ?
            WHERE feed_sources.refreshing = 0
              AND (feed_sources.next_poll_at IS NULL OR feed_sources.next_poll_at <= ?)
            GROUP BY feed_sources.id
            ORDER BY COALESCE(feed_sources.next_poll_at, feed_sources.created_at)`,
         )
-        .all(at) as Array<{ id: number }>
+        .all(activeAfter, at) as Array<{ id: number }>
     ).map((row) => row.id);
   }
 

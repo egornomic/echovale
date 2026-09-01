@@ -17,6 +17,7 @@ import {
   type WebFeedConfig,
 } from "../shared/types.js";
 import { nitterVideoPostId } from "../shared/x.js";
+import { accountActivityTouchBefore } from "./account-activity.js";
 import type { AppDatabase } from "./database.js";
 import type { ExtractionQueue } from "./extraction.js";
 import type { AiService } from "./features/ai/service.js";
@@ -169,6 +170,12 @@ export class ApplicationApi {
   }
 
   async invoke(request: DesktopRequest): Promise<unknown> {
+    const activityAt = new Date().toISOString();
+    this.#database.auth.touchUserActivity(
+      this.#userId,
+      activityAt,
+      accountActivityTouchBefore(activityAt),
+    );
     switch (request.operation) {
       case "session":
       case "login":

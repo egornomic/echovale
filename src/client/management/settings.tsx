@@ -1438,7 +1438,10 @@ function SettingsPage({
       <section className="settings-section" aria-labelledby="refresh-heading">
         <div className="settings-heading">
           <h2 id="refresh-heading">Refresh</h2>
-          <p>The server refreshes feeds even when no browser is open.</p>
+          <p>
+            The server keeps refreshing feeds for seven days after you last use the app, even when
+            no browser is open.
+          </p>
         </div>
         <div className="setting-row">
           <label htmlFor="poll-interval">
