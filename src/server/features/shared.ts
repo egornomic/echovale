@@ -23,12 +23,9 @@ import { InvalidRequestError } from "../errors.js";
 
 interface FeedRecordBase {
   id: number;
-  userId: number;
-  folderId: number | null;
   title: string;
   feedUrl: string;
   siteUrl: string | null;
-  paused: boolean;
   etag: string | null;
   lastModified: string | null;
   pollIntervalMinutes: FeedPollIntervalMinutes;
@@ -97,7 +94,7 @@ export interface StoredArticleAiTranslation extends ArticleAiTranslation {
 export type Row = Record<string, unknown>;
 
 export const WEB_FEED_POLL_INTERVAL_MINUTES = 60;
-export const feedPollIntervalSql = "feeds.poll_interval_minutes";
+export const feedPollIntervalSql = "feed_sources.poll_interval_minutes";
 
 export function now(): string {
   return new Date().toISOString();
@@ -203,12 +200,9 @@ export function mapFeed(row: Row): Feed {
 export function mapFeedRecord(row: Row): FeedRecord {
   const base: FeedRecordBase = {
     id: Number(row.id),
-    userId: Number(row.userId),
-    folderId: row.folderId === null ? null : Number(row.folderId),
     title: String(row.title),
     feedUrl: String(row.feedUrl),
     siteUrl: row.siteUrl === null ? null : String(row.siteUrl),
-    paused: toBoolean(row.paused),
     etag: row.etag === null ? null : String(row.etag),
     lastModified: row.lastModified === null ? null : String(row.lastModified),
     pollIntervalMinutes: Number(row.pollIntervalMinutes) as FeedPollIntervalMinutes,
@@ -238,14 +232,14 @@ export function mapFeedRecord(row: Row): FeedRecord {
   };
 }
 
-export const feedRecordColumns = `feeds.id, feeds.user_id AS userId,
-  feeds.folder_id AS folderId, feeds.title,
-  feeds.feed_url AS feedUrl, feeds.site_url AS siteUrl, feeds.source_kind AS sourceKind,
-  feeds.paused, feeds.etag, feeds.last_modified AS lastModified,
+export const feedRecordColumns = `feed_sources.id, feed_sources.title,
+  feed_sources.feed_url AS feedUrl, feed_sources.site_url AS siteUrl,
+  feed_sources.source_kind AS sourceKind,
+  feed_sources.etag, feed_sources.last_modified AS lastModified,
   ${feedPollIntervalSql} AS pollIntervalMinutes,
-  web_feed_configs.config_json AS webConfigJson,
-  web_feed_configs.selection_revision AS selectionRevision,
-  web_feed_configs.last_match_count AS lastMatchCount`;
+  source_web_feed_configs.config_json AS webConfigJson,
+  source_web_feed_configs.selection_revision AS selectionRevision,
+  source_web_feed_configs.last_match_count AS lastMatchCount`;
 
 export function mapArticle(row: Row): Article {
   const id = Number(row.id);
@@ -349,6 +343,7 @@ export const visibleClause = `NOT EXISTS (
   FROM article_rule_matches arm
   JOIN rules hidden_rule ON hidden_rule.id = arm.rule_id
   WHERE arm.article_id = articles.id
+    AND arm.feed_id = feeds.id
     AND hidden_rule.enabled = 1
     AND hidden_rule.action = 'hide'
 )
@@ -359,7 +354,7 @@ AND (
     WHERE keep_rule.user_id = feeds.user_id
       AND keep_rule.enabled = 1
       AND keep_rule.action = 'keep'
-      AND (keep_rule.feed_id IS NULL OR keep_rule.feed_id = articles.feed_id)
+      AND (keep_rule.feed_id IS NULL OR keep_rule.feed_id = feeds.id)
       AND (
         keep_rule.folder_id IS NULL
         OR EXISTS (
@@ -382,6 +377,7 @@ AND (
     FROM article_rule_matches keep_match
     JOIN rules matched_keep_rule ON matched_keep_rule.id = keep_match.rule_id
     WHERE keep_match.article_id = articles.id
+      AND keep_match.feed_id = feeds.id
       AND matched_keep_rule.enabled = 1
       AND matched_keep_rule.action = 'keep'
   )

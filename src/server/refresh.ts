@@ -121,11 +121,15 @@ export class FeedRefreshService {
     const accepted = candidates.filter((feed) => !this.requestedIds.has(feed.id));
     for (const feed of accepted) {
       this.requestedIds.add(feed.id);
-      this.feeds.markRefreshing(feed.id);
+      this.feeds.markSourceRefreshing(feed.id);
       this.pending.push({ feed, scheduled });
     }
     this.pump();
-    return { requested: accepted.length, refreshingFeedIds: accepted.map((feed) => feed.id) };
+    const acceptedSourceIds = new Set(accepted.map((feed) => feed.id));
+    const refreshingFeedIds = feedIds
+      ? feedIds.filter((feedId) => acceptedSourceIds.has(this.feeds.sourceIdForFeed(feedId)))
+      : accepted.map((feed) => feed.id);
+    return { requested: accepted.length, refreshingFeedIds };
   }
 
   subscribe(userId: number, listener: () => void): () => void {
@@ -147,7 +151,9 @@ export class FeedRefreshService {
       void this.refresh(feed, scheduled).finally(() => {
         this.active -= 1;
         this.requestedIds.delete(feed.id);
-        this.notifyDataChanged(feed.userId);
+        for (const subscription of this.feeds.listSourceSubscriptions(feed.id)) {
+          this.notifyDataChanged(subscription.userId);
+        }
         this.pump();
         this.resolveIdleIfNeeded();
       });
@@ -160,7 +166,7 @@ export class FeedRefreshService {
     try {
       if (feed.sourceKind === "web") {
         if (!this.webFeedService) {
-          this.feeds.failRefresh(feed.id, {
+          this.feeds.failSourceRefresh(feed.id, {
             httpStatus: null,
             error: "Web feed loading is unavailable. Check the server's Chromium setup.",
             errorKind: "unsupported_content",
@@ -172,7 +178,7 @@ export class FeedRefreshService {
         }
         const result = await this.webFeedService.extract(feed.webConfig);
         httpStatus = result.httpStatus;
-        this.feeds.completeRefresh(feed.id, {
+        this.feeds.completeSourceRefresh(feed.id, {
           httpStatus: result.httpStatus ?? 200,
           etag: null,
           lastModified: null,
@@ -200,7 +206,7 @@ export class FeedRefreshService {
       });
       httpStatus = response.status;
       if (response.status === 304) {
-        this.feeds.completeRefresh(feed.id, {
+        this.feeds.completeSourceRefresh(feed.id, {
           httpStatus: response.status,
           etag: response.headers.get("etag"),
           lastModified: response.headers.get("last-modified"),
@@ -233,7 +239,7 @@ export class FeedRefreshService {
           ? parseAndNormalizeTelegramFeed(feedSource, telegram.channelUrl)
           : parseAndNormalizeFeed(feedSource, response.url || sourceUrl);
       }
-      this.feeds.completeRefresh(feed.id, {
+      this.feeds.completeSourceRefresh(feed.id, {
         httpStatus: response.status,
         etag: response.headers.get("etag"),
         lastModified: response.headers.get("last-modified"),
@@ -242,7 +248,7 @@ export class FeedRefreshService {
       });
     } catch (error) {
       const failure = failureDetails(error, feed.sourceKind, httpStatus);
-      this.feeds.failRefresh(feed.id, {
+      this.feeds.failSourceRefresh(feed.id, {
         ...failure,
         error: message(error),
         retryMinutes: feed.pollIntervalMinutes,
@@ -280,7 +286,7 @@ export class FeedRefreshService {
     this.timer = null;
     for (const { feed } of this.pending.splice(0)) {
       this.requestedIds.delete(feed.id);
-      this.feeds.failRefresh(feed.id, {
+      this.feeds.failSourceRefresh(feed.id, {
         httpStatus: null,
         error: "The refresh stopped because the server shut down. Refresh the feed again.",
         errorKind: "network",

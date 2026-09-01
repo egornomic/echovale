@@ -186,7 +186,12 @@ describe("live API, OPML, and filtering rules", () => {
       },
     });
     const articleId = database.connection
-      .prepare("SELECT id FROM articles WHERE feed_id = ? AND external_id = ?")
+      .prepare(
+        `SELECT articles.id
+         FROM feed_articles
+         JOIN articles ON articles.id = feed_articles.article_id
+         WHERE feed_articles.feed_id = ? AND articles.external_id = ?`,
+      )
       .pluck()
       .get(readerFeed.id, "private-story") as number;
 
@@ -205,7 +210,7 @@ describe("live API, OPML, and filtering rules", () => {
       feeds: [{ id: readerFeed.id, title: "Reader copy" }],
     });
     expect(partnerBootstrap.json()).toMatchObject({
-      counts: { all: 0 },
+      counts: { all: 1 },
       feeds: [{ id: partnerFeed.id, title: "Partner copy" }],
       folders: [],
     });
@@ -218,7 +223,7 @@ describe("live API, OPML, and filtering rules", () => {
           headers: { cookie: partnerCookie },
         })
       ).statusCode,
-    ).toBe(404);
+    ).toBe(200);
     const translationWithoutAi = await app.inject({
       method: "POST",
       url: `/api/articles/${articleId}/translation`,
@@ -236,7 +241,7 @@ describe("live API, OPML, and filtering rules", () => {
           payload: { sourceKind: "excerpt" },
         })
       ).statusCode,
-    ).toBe(404);
+    ).toBe(422);
     expect(
       (
         await app.inject({

@@ -564,7 +564,9 @@ export class ApplicationApi {
     );
     if (body.sourceKind === "published") {
       const feed = this.#database.feeds.createFeed(this.#userId, body);
-      if (!feed.paused) this.#refreshService.request([feed.id]);
+      if (!feed.paused && this.#database.feeds.subscriptionNeedsRefresh(feed.id)) {
+        this.#refreshService.request([feed.id]);
+      }
       return this.#database.feeds.getFeed(this.#userId, feed.id);
     }
     const config = body.webConfig as WebFeedConfig;

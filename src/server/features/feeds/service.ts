@@ -5,7 +5,7 @@ import type { FolderRepository } from "../folders/repository.js";
 import type { RuleRepository } from "../rules/repository.js";
 import type { FeedRecord, ParsedFeed } from "../shared.js";
 import { FeedIngestionService, type SuccessfulFeedRefresh } from "./ingestion-service.js";
-import type { FeedRepository } from "./repository.js";
+import type { FeedRepository, SourceSubscription } from "./repository.js";
 
 export class FeedService {
   private readonly ingestion: FeedIngestionService;
@@ -38,7 +38,11 @@ export class FeedService {
       paused?: boolean;
     },
   ): Feed {
-    return this.repository.createFeed(userId, input);
+    return this.sqlite.transaction(() => {
+      const feed = this.repository.createFeed(userId, input);
+      this.ingestion.initializeSubscription(feed.id, this.repository.sourceIdForFeed(feed.id));
+      return this.repository.getFeed(userId, feed.id) as Feed;
+    })();
   }
 
   createWebFeed(
@@ -67,7 +71,7 @@ export class FeedService {
         pageUrl,
         config,
       });
-      this.ingestion.completeRefresh(feedId, {
+      this.ingestion.completeRefresh(this.repository.sourceIdForFeed(feedId), {
         httpStatus: 200,
         etag: null,
         lastModified: null,
@@ -95,8 +99,8 @@ export class FeedService {
     const config = { ...configInput, pageUrl: new URL(configInput.pageUrl).toString() };
 
     return this.sqlite.transaction(() => {
-      this.repository.updateWebFeedSelectionRecord(id, config, parsed);
-      this.ingestion.completeRefresh(id, {
+      const sourceId = this.repository.updateWebFeedSelectionRecord(id, config, parsed);
+      this.ingestion.completeRefresh(sourceId, {
         httpStatus: 200,
         etag: null,
         lastModified: null,
@@ -134,7 +138,8 @@ export class FeedService {
   }
 
   getFeedRecord(id: number): FeedRecord | null {
-    return this.repository.getFeedRecord(id);
+    const sourceId = this.repository.sourceIdForFeed(id);
+    return sourceId ? this.repository.getFeedRecord(sourceId) : null;
   }
 
   getWebFeedConfig(userId: number, id: number): WebFeedConfig | null {
@@ -149,20 +154,50 @@ export class FeedService {
     return this.repository.getUserRefreshFeedIds(userId, requestedIds);
   }
 
+  sourceIdForFeed(feedId: number): number {
+    return this.repository.sourceIdForFeed(feedId);
+  }
+
+  subscriptionNeedsRefresh(feedId: number): boolean {
+    return this.repository.subscriptionNeedsRefresh(feedId);
+  }
+
   getDueFeedIds(at?: string): number[] {
     return this.repository.getDueFeedIds(at);
   }
 
   markRefreshing(id: number): void {
-    this.repository.markFeedRefreshing(id);
+    const sourceId = this.repository.sourceIdForFeed(id);
+    if (sourceId) this.repository.markFeedRefreshing(sourceId);
+  }
+
+  markSourceRefreshing(sourceId: number): void {
+    this.repository.markFeedRefreshing(sourceId);
+  }
+
+  listSourceSubscriptions(sourceId: number): SourceSubscription[] {
+    return this.repository.listSourceSubscriptions(sourceId);
   }
 
   completeRefresh(id: number, input: SuccessfulFeedRefresh): boolean {
-    return this.ingestion.completeRefresh(id, input);
+    const sourceId = this.repository.sourceIdForFeed(id);
+    return sourceId ? this.ingestion.completeRefresh(sourceId, input) : false;
+  }
+
+  completeSourceRefresh(sourceId: number, input: SuccessfulFeedRefresh): boolean {
+    return this.ingestion.completeRefresh(sourceId, input);
   }
 
   failRefresh(id: number, input: Parameters<FeedRepository["markFeedFailure"]>[1]): void {
-    this.repository.markFeedFailure(id, input);
+    const sourceId = this.repository.sourceIdForFeed(id);
+    if (sourceId) this.repository.markFeedFailure(sourceId, input);
+  }
+
+  failSourceRefresh(
+    sourceId: number,
+    input: Parameters<FeedRepository["markFeedFailure"]>[1],
+  ): void {
+    this.repository.markFeedFailure(sourceId, input);
   }
 
   listOpmlFeeds(userId: number): Array<{

@@ -94,13 +94,7 @@ export class AiRepository {
     this.sqlite
       .prepare(
         `DELETE FROM article_ai_summaries
-         WHERE prompt_id IS NULL
-           AND article_id IN (
-             SELECT articles.id
-             FROM articles
-             JOIN feeds ON feeds.id = articles.feed_id
-             WHERE feeds.user_id = ?
-           )`,
+         WHERE prompt_id IS NULL AND user_id = ?`,
       )
       .run(userId);
   }
@@ -108,13 +102,7 @@ export class AiRepository {
   deleteCustomPromptArticleSummaries(userId: number, promptIds: Iterable<string>): void {
     const deleteSummaries = this.sqlite.prepare(
       `DELETE FROM article_ai_summaries
-       WHERE prompt_id = ?
-         AND article_id IN (
-           SELECT articles.id
-           FROM articles
-           JOIN feeds ON feeds.id = articles.feed_id
-           WHERE feeds.user_id = ?
-         )`,
+       WHERE prompt_id = ? AND user_id = ?`,
     );
     for (const promptId of promptIds) deleteSummaries.run(promptId, userId);
   }
@@ -123,12 +111,7 @@ export class AiRepository {
     this.sqlite
       .prepare(
         `DELETE FROM article_ai_translations
-         WHERE article_id IN (
-           SELECT articles.id
-           FROM articles
-           JOIN feeds ON feeds.id = articles.feed_id
-           WHERE feeds.user_id = ?
-         )`,
+         WHERE user_id = ?`,
       )
       .run(userId);
   }
@@ -156,13 +139,18 @@ export class AiRepository {
                 article_ai_summaries.output_tokens AS aiSummaryOutputTokens,
                 article_ai_summaries.generated_at AS aiSummaryGeneratedAt
          FROM articles
-         JOIN feeds ON feeds.id = articles.feed_id
          LEFT JOIN article_ai_summaries
            ON article_ai_summaries.article_id = articles.id
+          AND article_ai_summaries.user_id = ?
           AND article_ai_summaries.source_revision = articles.content_revision
-         WHERE articles.id = ? AND feeds.user_id = ?`,
+         WHERE articles.id = ?
+           AND EXISTS (
+             SELECT 1 FROM feed_articles
+             JOIN feeds ON feeds.id = feed_articles.feed_id
+             WHERE feed_articles.article_id = articles.id AND feeds.user_id = ?
+           )`,
       )
-      .get(id, userId) as Row | undefined;
+      .get(userId, id, userId) as Row | undefined;
     if (!row) return null;
     return {
       id: Number(row.id),
@@ -193,12 +181,16 @@ export class AiRepository {
                 article_ai_summaries.generated_at AS aiSummaryGeneratedAt
          FROM article_ai_summaries
          JOIN articles ON articles.id = article_ai_summaries.article_id
-         JOIN feeds ON feeds.id = articles.feed_id
          WHERE article_ai_summaries.article_id = ?
+           AND article_ai_summaries.user_id = ?
            AND article_ai_summaries.source_revision = articles.content_revision
-           AND feeds.user_id = ?`,
+           AND EXISTS (
+             SELECT 1 FROM feed_articles
+             JOIN feeds ON feeds.id = feed_articles.feed_id
+             WHERE feed_articles.article_id = articles.id AND feeds.user_id = ?
+           )`,
       )
-      .get(id, userId) as Row | undefined;
+      .get(id, userId, userId) as Row | undefined;
     return row ? mapStoredArticleAiSummary(row) : null;
   }
 
@@ -220,18 +212,22 @@ export class AiRepository {
       const current = this.sqlite
         .prepare(
           `SELECT articles.content_revision AS revision
-           FROM articles JOIN feeds ON feeds.id = articles.feed_id
-           WHERE articles.id = ? AND feeds.user_id = ?`,
+           FROM articles
+           WHERE articles.id = ? AND EXISTS (
+             SELECT 1 FROM feed_articles
+             JOIN feeds ON feeds.id = feed_articles.feed_id
+             WHERE feed_articles.article_id = articles.id AND feeds.user_id = ?
+           )`,
         )
         .get(id, userId) as { revision: number } | undefined;
       if (!current || current.revision !== sourceRevision) return null;
       this.sqlite
         .prepare(
           `INSERT INTO article_ai_summaries (
-             article_id, source_revision, prompt_version, prompt_id, source_kind, provider, model,
+             user_id, article_id, source_revision, prompt_version, prompt_id, source_kind, provider, model,
              summary_text, input_tokens, output_tokens, generated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(article_id) DO UPDATE SET
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, article_id) DO UPDATE SET
              source_revision = excluded.source_revision,
              prompt_version = excluded.prompt_version,
              prompt_id = excluded.prompt_id,
@@ -244,6 +240,7 @@ export class AiRepository {
              generated_at = excluded.generated_at`,
         )
         .run(
+          userId,
           id,
           sourceRevision,
           input.promptVersion,
@@ -281,14 +278,18 @@ export class AiRepository {
                 article_ai_translations.generated_at AS aiTranslationGeneratedAt
          FROM article_ai_translations
          JOIN articles ON articles.id = article_ai_translations.article_id
-         JOIN feeds ON feeds.id = articles.feed_id
          WHERE article_ai_translations.article_id = ?
+           AND article_ai_translations.user_id = ?
            AND article_ai_translations.target_language = ? COLLATE NOCASE
            AND article_ai_translations.source_kind = ?
            AND article_ai_translations.source_revision = articles.content_revision
-           AND feeds.user_id = ?`,
+           AND EXISTS (
+             SELECT 1 FROM feed_articles
+             JOIN feeds ON feeds.id = feed_articles.feed_id
+             WHERE feed_articles.article_id = articles.id AND feeds.user_id = ?
+           )`,
       )
-      .get(id, language, sourceKind, userId) as Row | undefined;
+      .get(id, userId, language, sourceKind, userId) as Row | undefined;
     return row ? mapStoredArticleAiTranslation(row) : null;
   }
 
@@ -310,18 +311,22 @@ export class AiRepository {
       const current = this.sqlite
         .prepare(
           `SELECT articles.content_revision AS revision
-           FROM articles JOIN feeds ON feeds.id = articles.feed_id
-           WHERE articles.id = ? AND feeds.user_id = ?`,
+           FROM articles
+           WHERE articles.id = ? AND EXISTS (
+             SELECT 1 FROM feed_articles
+             JOIN feeds ON feeds.id = feed_articles.feed_id
+             WHERE feed_articles.article_id = articles.id AND feeds.user_id = ?
+           )`,
         )
         .get(id, userId) as { revision: number } | undefined;
       if (!current || current.revision !== sourceRevision) return null;
       this.sqlite
         .prepare(
           `INSERT INTO article_ai_translations (
-             article_id, target_language, source_kind, source_revision, prompt_version,
+             user_id, article_id, target_language, source_kind, source_revision, prompt_version,
              provider, model, translation_html, input_tokens, output_tokens, generated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(article_id, target_language, source_kind) DO UPDATE SET
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, article_id, target_language, source_kind) DO UPDATE SET
              source_revision = excluded.source_revision,
              prompt_version = excluded.prompt_version,
              provider = excluded.provider,
@@ -332,6 +337,7 @@ export class AiRepository {
              generated_at = excluded.generated_at`,
         )
         .run(
+          userId,
           id,
           input.language,
           input.sourceKind,

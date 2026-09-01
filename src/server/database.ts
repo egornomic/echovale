@@ -47,7 +47,7 @@ export class AppDatabase {
         .prepare("UPDATE settings SET poll_interval_minutes = ? WHERE user_id = 1")
         .run(normalizeFeedPollInterval(defaultPollIntervalMinutes));
     }
-    this.connection.prepare("UPDATE feeds SET refreshing = 0 WHERE refreshing = 1").run();
+    this.connection.prepare("UPDATE feed_sources SET refreshing = 0 WHERE refreshing = 1").run();
     this.connection
       .prepare(
         "UPDATE articles SET extraction_status = 'pending' WHERE extraction_status = 'processing'",

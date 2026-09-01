@@ -61,11 +61,12 @@ export class ArticleRepository {
     const counts = this.sqlite
       .prepare(
         `SELECT
-           SUM(CASE WHEN is_read = 0 AND ${visibleClause} THEN 1 ELSE 0 END) AS unread,
-           SUM(CASE WHEN is_starred = 1 AND ${visibleClause} THEN 1 ELSE 0 END) AS starred,
+           SUM(CASE WHEN feed_articles.is_read = 0 AND ${visibleClause} THEN 1 ELSE 0 END) AS unread,
+           SUM(CASE WHEN feed_articles.is_starred = 1 AND ${visibleClause} THEN 1 ELSE 0 END) AS starred,
            SUM(CASE WHEN ${visibleClause} THEN 1 ELSE 0 END) AS allCount
-         FROM articles
-         JOIN feeds ON feeds.id = articles.feed_id
+         FROM feed_articles
+         JOIN articles ON articles.id = feed_articles.article_id
+         JOIN feeds ON feeds.id = feed_articles.feed_id
          WHERE feeds.user_id = ?`,
       )
       .get(userId) as Row;
@@ -83,12 +84,12 @@ export class ArticleRepository {
   listArticlePage(userId: number, query: ArticleQuery): ArticlePage {
     const savedOrder = query.state === "starred";
     const sortAtSql = savedOrder
-      ? "articles.starred_at"
+      ? "feed_articles.starred_at"
       : "COALESCE(articles.published_at, articles.discovered_at)";
     const where = ["feeds.user_id = ?"];
     const values: Array<string | number> = [userId];
     if (query.feedId !== undefined) {
-      where.push("articles.feed_id = ?");
+      where.push("feeds.id = ?");
       values.push(query.feedId);
     }
     if (query.folderId !== undefined) {
@@ -106,9 +107,9 @@ export class ArticleRepository {
     }
     const queueWhere = [visibleClause];
     const queueValues: Array<string | number> = [];
-    if (query.state === "unread") queueWhere.push("articles.is_read = 0");
-    if (query.state === "read") queueWhere.push("articles.is_read = 1");
-    if (query.state === "starred") queueWhere.push("articles.is_starred = 1");
+    if (query.state === "unread") queueWhere.push("feed_articles.is_read = 0");
+    if (query.state === "read") queueWhere.push("feed_articles.is_read = 1");
+    if (query.state === "starred") queueWhere.push("feed_articles.is_starred = 1");
     if (query.search) {
       queueWhere.push(
         `(articles.title LIKE ? ESCAPE '\\' COLLATE NOCASE
@@ -141,8 +142,9 @@ export class ArticleRepository {
           .prepare(
             `SELECT feeds.folder_id AS folderId,
                     COALESCE(folders.sort_direction, 'newest') AS sortDirection
-             FROM articles
-             JOIN feeds ON feeds.id = articles.feed_id
+             FROM feed_articles
+             JOIN articles ON articles.id = feed_articles.article_id
+             JOIN feeds ON feeds.id = feed_articles.feed_id
              LEFT JOIN folders ON folders.id = feeds.folder_id
              WHERE ${where.join(" AND ")}
              GROUP BY feeds.folder_id, folders.sort_direction
@@ -183,9 +185,9 @@ export class ArticleRepository {
       const rows = this.sqlite
         .prepare(
           `SELECT articles.id,
-                articles.feed_id AS feedId,
+                feeds.id AS feedId,
                 feeds.title AS feedTitle,
-                feeds.source_kind AS feedSourceKind,
+                feed_sources.source_kind AS feedSourceKind,
                 feeds.folder_id AS folderId,
                 articles.title,
                 articles.url,
@@ -208,13 +210,16 @@ export class ArticleRepository {
                 ${query.includeContent ? "article_ai_summaries.generated_at" : "NULL"} AS aiSummaryGeneratedAt,
                 ${query.includeContent ? "article_ai_summaries.input_tokens" : "NULL"} AS aiSummaryInputTokens,
                 ${query.includeContent ? "article_ai_summaries.output_tokens" : "NULL"} AS aiSummaryOutputTokens,
-                articles.is_read AS isRead,
-                articles.is_starred AS isStarred,
+                feed_articles.is_read AS isRead,
+                feed_articles.is_starred AS isStarred,
                 ${sortAtSql} AS sortAt
-           FROM articles
-           JOIN feeds ON feeds.id = articles.feed_id
+           FROM feed_articles
+           JOIN articles ON articles.id = feed_articles.article_id
+           JOIN feeds ON feeds.id = feed_articles.feed_id
+           JOIN feed_sources ON feed_sources.id = feeds.source_id
            LEFT JOIN article_ai_summaries
              ON article_ai_summaries.article_id = articles.id
+            AND article_ai_summaries.user_id = feeds.user_id
             AND article_ai_summaries.source_revision = articles.content_revision
            WHERE ${bucketWhere.join(" AND ")}
            ORDER BY ${sortAtSql} ${order},
@@ -281,7 +286,7 @@ export class ArticleRepository {
          END`;
     const sortDirectionSql = savedOrder ? "'newest'" : "COALESCE(folders.sort_direction, 'newest')";
     const sortAtSql = savedOrder
-      ? "articles.starred_at"
+      ? "feed_articles.starred_at"
       : "COALESCE(articles.published_at, articles.discovered_at)";
     const rows = this.sqlite
       .prepare(
@@ -290,8 +295,9 @@ export class ArticleRepository {
                   ${bucketKeySql} AS bucketKey,
                   ${sortDirectionSql} AS sortDirection,
                   ${sortAtSql} AS sortAt
-           FROM articles
-           JOIN feeds ON feeds.id = articles.feed_id
+           FROM feed_articles
+           JOIN articles ON articles.id = feed_articles.article_id
+           JOIN feeds ON feeds.id = feed_articles.feed_id
            LEFT JOIN folders ON folders.id = feeds.folder_id
            WHERE ${where.join(" AND ")}
          ),
@@ -389,9 +395,9 @@ export class ArticleRepository {
     const row = this.sqlite
       .prepare(
         `SELECT articles.id,
-                articles.feed_id AS feedId,
+                feeds.id AS feedId,
                 feeds.title AS feedTitle,
-                feeds.source_kind AS feedSourceKind,
+                feed_sources.source_kind AS feedSourceKind,
                 feeds.folder_id AS folderId,
                 articles.title,
                 articles.url,
@@ -414,12 +420,15 @@ export class ArticleRepository {
                 article_ai_summaries.generated_at AS aiSummaryGeneratedAt,
                 article_ai_summaries.input_tokens AS aiSummaryInputTokens,
                 article_ai_summaries.output_tokens AS aiSummaryOutputTokens,
-                articles.is_read AS isRead,
-                articles.is_starred AS isStarred
-         FROM articles
-         JOIN feeds ON feeds.id = articles.feed_id
+                feed_articles.is_read AS isRead,
+                feed_articles.is_starred AS isStarred
+         FROM feed_articles
+         JOIN articles ON articles.id = feed_articles.article_id
+         JOIN feeds ON feeds.id = feed_articles.feed_id
+         JOIN feed_sources ON feed_sources.id = feeds.source_id
          LEFT JOIN article_ai_summaries
            ON article_ai_summaries.article_id = articles.id
+          AND article_ai_summaries.user_id = feeds.user_id
           AND article_ai_summaries.source_revision = articles.content_revision
          WHERE articles.id = ? AND feeds.user_id = ?`,
       )
@@ -437,20 +446,21 @@ export class ArticleRepository {
     const isStarred = input.isStarred ?? existing.isStarred;
     this.sqlite
       .prepare(
-        `UPDATE articles
+        `UPDATE feed_articles
          SET is_read = ?,
              is_starred = ?,
              starred_at = CASE
                WHEN is_starred = 0 AND ? = 1 THEN ?
                ELSE starred_at
              END
-         WHERE id = ?`,
+         WHERE feed_id = ? AND article_id = ?`,
       )
       .run(
         (input.isRead ?? existing.isRead) ? 1 : 0,
         isStarred ? 1 : 0,
         isStarred ? 1 : 0,
         now(),
+        existing.feedId,
         id,
       );
     return this.getArticle(userId, id);
@@ -459,13 +469,15 @@ export class ArticleRepository {
   markArticlesRead(userId: number, input: MarkReadRequest): number {
     if (input.articleIds?.length === 0) return 0;
 
-    const articleWhere = ["articles.is_read = 0"];
-    const feedWhere = ["feeds.id = articles.feed_id", "feeds.user_id = ?"];
+    const articleWhere = ["feed_articles.is_read = 0"];
+    const feedWhere = ["feeds.id = feed_articles.feed_id", "feeds.user_id = ?"];
     const articleValues: Array<number | string> = [];
     const feedValues: Array<number | string> = [userId];
 
     if (input.articleIds) {
-      articleWhere.push(`articles.id IN (${input.articleIds.map(() => "?").join(", ")})`);
+      articleWhere.push(
+        `feed_articles.article_id IN (${input.articleIds.map(() => "?").join(", ")})`,
+      );
       articleValues.push(...input.articleIds);
     }
     if (input.feedId !== undefined) {
@@ -487,13 +499,18 @@ export class ArticleRepository {
     }
     if (input.olderThanDays !== undefined) {
       const cutoff = new Date(Date.now() - input.olderThanDays * 86_400_000).toISOString();
-      articleWhere.push("COALESCE(articles.published_at, articles.discovered_at) < ?");
+      articleWhere.push(
+        `feed_articles.article_id IN (
+           SELECT id FROM articles
+           WHERE COALESCE(published_at, discovered_at) < ?
+         )`,
+      );
       articleValues.push(cutoff);
     }
 
     return this.sqlite
       .prepare(
-        `UPDATE articles SET is_read = 1
+        `UPDATE feed_articles SET is_read = 1
          WHERE ${articleWhere.join(" AND ")}
            AND EXISTS (
              SELECT 1 FROM feeds
@@ -504,65 +521,26 @@ export class ArticleRepository {
   }
 
   storeParsedFeedArticles(
-    id: number,
+    sourceId: number,
     parsed: ParsedFeed,
-    initialArticleLimit?: number,
   ): { changedArticleIds: Set<number>; insertedArticleCount: number } {
     const changedArticleIds = new Set<number>();
     let insertedArticleCount = 0;
-    const initial =
-      initialArticleLimit === undefined
-        ? { included: parsed, ignoredExternalIds: [] }
-        : initialArticles(parsed, initialArticleLimit);
-    const rememberIgnored = this.sqlite.prepare(
-      "INSERT OR IGNORE INTO ignored_feed_articles (feed_id, external_id) VALUES (?, ?)",
-    );
-    for (const externalId of initial.ignoredExternalIds) rememberIgnored.run(id, externalId);
-    const isIgnored = this.sqlite.prepare(
-      "SELECT 1 FROM ignored_feed_articles WHERE feed_id = ? AND external_id = ?",
-    );
+    const sourceKind = this.sqlite
+      .prepare("SELECT source_kind FROM feed_sources WHERE id = ?")
+      .pluck()
+      .get(sourceId) as FeedSourceKind;
     const findExisting = this.sqlite.prepare(
       `SELECT id, title, url, author, published_at AS publishedAt, summary,
-                  image_url AS imageUrl, media_json AS mediaJson,
-                  feed_content_html AS feedContentHtml, extraction_status AS extractionStatus
-           FROM articles WHERE feed_id = ? AND external_id = ?`,
+              image_url AS imageUrl, media_json AS mediaJson,
+              feed_content_html AS feedContentHtml, extraction_status AS extractionStatus
+       FROM articles WHERE source_id = ? AND external_id = ?`,
     );
     const insert = this.sqlite.prepare(
       `INSERT INTO articles (
-             feed_id, external_id, title, url, author, published_at, discovered_at,
-             summary, image_url, media_json, feed_content_html, extraction_status
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const duplicateSettings = this.sqlite
-      .prepare(
-        `SELECT feeds.user_id AS userId,
-                    feeds.source_kind AS sourceKind,
-                    settings.duplicate_article_window_days AS windowDays
-             FROM feeds
-             JOIN settings ON settings.user_id = feeds.user_id
-             WHERE feeds.id = ?`,
-      )
-      .get(id) as { userId: number; sourceKind: FeedSourceKind; windowDays: number };
-    const duplicateCutoff = new Date(
-      Date.now() - duplicateSettings.windowDays * 24 * 60 * 60 * 1_000,
-    ).toISOString();
-    const findDuplicate = this.sqlite.prepare(
-      duplicateSettings.sourceKind === "web"
-        ? `SELECT 1
-               FROM articles
-               JOIN feeds ON feeds.id = articles.feed_id
-               WHERE feeds.user_id = ?
-                 AND articles.discovered_at >= ?
-                 AND ? IS NOT NULL
-                 AND articles.url = ?
-               LIMIT 1`
-        : `SELECT 1
-               FROM articles
-               JOIN feeds ON feeds.id = articles.feed_id
-               WHERE feeds.user_id = ?
-                 AND articles.discovered_at >= ?
-                 AND ((? IS NOT NULL AND articles.url = ?) OR (? <> '' AND articles.title = ?))
-               LIMIT 1`,
+         source_id, external_id, title, url, author, published_at, discovered_at,
+         summary, image_url, media_json, feed_content_html, extraction_status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const update = this.sqlite.prepare(
       `UPDATE articles
@@ -577,15 +555,14 @@ export class ArticleRepository {
                content_revision = content_revision + ?
            WHERE id = ?`,
     );
-    for (const article of initial.included.articles) {
-      if (isIgnored.get(id, article.externalId)) continue;
+    for (const article of parsed.articles) {
       const media = article.media ?? null;
       const mediaJson = media ? JSON.stringify(media) : null;
       const extractionStatus = "feed";
-      const existing = findExisting.get(id, article.externalId) as Row | undefined;
+      const existing = findExisting.get(sourceId, article.externalId) as Row | undefined;
       if (existing) {
         const publishedAt =
-          duplicateSettings.sourceKind === "web" && article.publishedAt === null
+          sourceKind === "web" && article.publishedAt === null
             ? existing.publishedAt
             : article.publishedAt;
         const sourceChanged =
@@ -632,30 +609,14 @@ export class ArticleRepository {
         changedArticleIds.add(articleId);
         continue;
       }
-      const duplicate =
-        duplicateSettings.sourceKind === "web"
-          ? findDuplicate.get(duplicateSettings.userId, duplicateCutoff, article.url, article.url)
-          : findDuplicate.get(
-              duplicateSettings.userId,
-              duplicateCutoff,
-              article.url,
-              article.url,
-              article.title,
-              article.title,
-            );
-      if (duplicate) {
-        continue;
-      }
       const discoveredAt = now();
       const result = insert.run(
-        id,
+        sourceId,
         article.externalId,
         article.title,
         article.url,
         article.author,
-        duplicateSettings.sourceKind === "web"
-          ? (article.publishedAt ?? discoveredAt)
-          : article.publishedAt,
+        sourceKind === "web" ? (article.publishedAt ?? discoveredAt) : article.publishedAt,
         discoveredAt,
         article.summary,
         article.imageUrl,
@@ -671,9 +632,137 @@ export class ArticleRepository {
     return { changedArticleIds, insertedArticleCount };
   }
 
+  deliverSourceArticles(
+    feedId: number,
+    sourceId: number,
+    parsed: ParsedFeed | undefined,
+    initialArticleLimit?: number,
+  ): Set<number> {
+    const delivered = new Set<number>();
+    const initial =
+      parsed && initialArticleLimit !== undefined
+        ? initialArticles(parsed, initialArticleLimit)
+        : parsed
+          ? { included: parsed, ignoredExternalIds: [] }
+          : null;
+    const rememberIgnored = this.sqlite.prepare(
+      "INSERT OR IGNORE INTO ignored_feed_articles (feed_id, external_id) VALUES (?, ?)",
+    );
+    for (const externalId of initial?.ignoredExternalIds ?? []) {
+      rememberIgnored.run(feedId, externalId);
+    }
+    const cachedExternalIds = initial
+      ? []
+      : (
+          this.sqlite
+            .prepare(
+              `SELECT external_id AS externalId FROM articles
+               WHERE source_id = ?
+               ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC`,
+            )
+            .all(sourceId) as Array<{ externalId: string }>
+        ).map(({ externalId }) => externalId);
+    if (!initial && initialArticleLimit !== undefined) {
+      for (const externalId of cachedExternalIds.slice(initialArticleLimit)) {
+        rememberIgnored.run(feedId, externalId);
+      }
+    }
+    const candidates = initial
+      ? initial.included.articles.map(({ externalId }) => externalId)
+      : cachedExternalIds.slice(0, initialArticleLimit ?? 500);
+    const settings = this.sqlite
+      .prepare(
+        `SELECT feeds.user_id AS userId, feed_sources.source_kind AS sourceKind,
+                settings.duplicate_article_window_days AS windowDays
+         FROM feeds
+         JOIN feed_sources ON feed_sources.id = feeds.source_id
+         JOIN settings ON settings.user_id = feeds.user_id
+         WHERE feeds.id = ? AND feeds.source_id = ?`,
+      )
+      .get(feedId, sourceId) as
+      | { userId: number; sourceKind: FeedSourceKind; windowDays: number }
+      | undefined;
+    if (!settings) return delivered;
+    const duplicateCutoff = new Date(
+      Date.now() - settings.windowDays * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    const article = this.sqlite.prepare(
+      `SELECT id, url, title FROM articles WHERE source_id = ? AND external_id = ?`,
+    );
+    const ignored = this.sqlite.prepare(
+      "SELECT 1 FROM ignored_feed_articles WHERE feed_id = ? AND external_id = ?",
+    );
+    const alreadyDelivered = this.sqlite.prepare(
+      "SELECT 1 FROM feed_articles WHERE feed_id = ? AND article_id = ?",
+    );
+    const sameFeedWebArticle = this.sqlite.prepare(
+      `SELECT feed_articles.article_id AS articleId, articles.source_id AS sourceId
+       FROM feed_articles
+       JOIN articles ON articles.id = feed_articles.article_id
+       WHERE feed_articles.feed_id = ? AND ? IS NOT NULL AND articles.url = ?
+       LIMIT 1`,
+    );
+    const duplicate = this.sqlite.prepare(
+      settings.sourceKind === "web"
+        ? `SELECT 1
+           FROM feed_articles
+           JOIN feeds ON feeds.id = feed_articles.feed_id
+           JOIN articles ON articles.id = feed_articles.article_id
+           WHERE feeds.user_id = ? AND feed_articles.delivered_at >= ?
+             AND ? IS NOT NULL AND articles.url = ? LIMIT 1`
+        : `SELECT 1
+           FROM feed_articles
+           JOIN feeds ON feeds.id = feed_articles.feed_id
+           JOIN articles ON articles.id = feed_articles.article_id
+           WHERE feeds.user_id = ? AND feed_articles.delivered_at >= ?
+             AND ((? IS NOT NULL AND articles.url = ?) OR (? <> '' AND articles.title = ?))
+           LIMIT 1`,
+    );
+    const insert = this.sqlite.prepare(
+      `INSERT INTO feed_articles (feed_id, article_id, delivered_at)
+       VALUES (?, ?, ?)`,
+    );
+    for (const externalId of candidates) {
+      if (ignored.get(feedId, externalId)) continue;
+      const row = article.get(sourceId, externalId) as
+        | { id: number; url: string | null; title: string }
+        | undefined;
+      if (!row || alreadyDelivered.get(feedId, row.id)) continue;
+      const previous =
+        settings.sourceKind === "web"
+          ? (sameFeedWebArticle.get(feedId, row.url, row.url) as
+              | { articleId: number; sourceId: number }
+              | undefined)
+          : undefined;
+      if (previous && previous.sourceId !== sourceId && previous.articleId !== row.id) {
+        this.sqlite
+          .prepare("DELETE FROM article_rule_matches WHERE feed_id = ? AND article_id = ?")
+          .run(feedId, previous.articleId);
+        this.sqlite
+          .prepare(
+            `UPDATE feed_articles SET article_id = ?
+             WHERE feed_id = ? AND article_id = ?`,
+          )
+          .run(row.id, feedId, previous.articleId);
+        delivered.add(row.id);
+        continue;
+      }
+      const isDuplicate =
+        settings.sourceKind === "web"
+          ? duplicate.get(settings.userId, duplicateCutoff, row.url, row.url)
+          : duplicate.get(settings.userId, duplicateCutoff, row.url, row.url, row.title, row.title);
+      if (isDuplicate) continue;
+      insert.run(feedId, row.id, now());
+      delivered.add(row.id);
+    }
+    return delivered;
+  }
+
   listFeedArticleIds(feedId: number): number[] {
     return (
-      this.sqlite.prepare("SELECT id FROM articles WHERE feed_id = ?").all(feedId) as Array<{
+      this.sqlite
+        .prepare("SELECT article_id AS id FROM feed_articles WHERE feed_id = ?")
+        .all(feedId) as Array<{
         id: number;
       }>
     ).map((article) => article.id);

@@ -25,7 +25,22 @@ export class FeedIngestionService {
     private readonly rules: RuleRepository,
   ) {}
 
-  completeRefresh(feedId: number, input: SuccessfulFeedRefresh): boolean {
+  initializeSubscription(feedId: number, sourceId: number): boolean {
+    return this.sqlite.transaction(() => {
+      if (!this.feeds.sourceHasSuccessfulRefresh(sourceId)) return false;
+      const delivered = this.articles.deliverSourceArticles(
+        feedId,
+        sourceId,
+        undefined,
+        INITIAL_ARTICLE_LIMIT,
+      );
+      this.feeds.markSubscriptionInitialized(feedId, new Date().toISOString());
+      this.rules.recomputeRulesForArticles(delivered);
+      return true;
+    })();
+  }
+
+  completeRefresh(sourceId: number, input: SuccessfulFeedRefresh): boolean {
     const parsed = input.parsed
       ? {
           ...input.parsed,
@@ -44,22 +59,32 @@ export class FeedIngestionService {
     return this.sqlite.transaction(() => {
       if (
         input.expectedSelectionRevision !== undefined &&
-        !this.feeds.selectionRevisionMatches(feedId, input.expectedSelectionRevision)
+        !this.feeds.selectionRevisionMatches(sourceId, input.expectedSelectionRevision)
       ) {
         return false;
       }
 
       const changedArticleIds = new Set<number>();
       let insertedArticleCount = 0;
-      const initialRefresh = this.feeds.isInitialRefresh(feedId);
+      const initialRefresh = this.feeds.isInitialSourceRefresh(sourceId);
       if (parsed) {
-        this.feeds.updateFromParsedFeed(feedId, parsed);
-        const initialArticleLimit = initialRefresh ? INITIAL_ARTICLE_LIMIT : undefined;
-        const stored = this.articles.storeParsedFeedArticles(feedId, parsed, initialArticleLimit);
+        this.feeds.updateFromParsedFeed(sourceId, parsed);
+        const stored = this.articles.storeParsedFeedArticles(sourceId, parsed);
         insertedArticleCount = stored.insertedArticleCount;
         for (const articleId of stored.changedArticleIds) changedArticleIds.add(articleId);
       }
-      this.feeds.completeSuccessfulRefresh(feedId, {
+      const initializedAt = new Date().toISOString();
+      for (const subscription of this.feeds.listSourceSubscriptions(sourceId)) {
+        const delivered = this.articles.deliverSourceArticles(
+          subscription.feedId,
+          sourceId,
+          parsed,
+          subscription.initialized ? undefined : INITIAL_ARTICLE_LIMIT,
+        );
+        for (const articleId of delivered) changedArticleIds.add(articleId);
+        this.feeds.markSubscriptionInitialized(subscription.feedId, initializedAt);
+      }
+      this.feeds.completeSuccessfulRefresh(sourceId, {
         ...input,
         scheduled: input.scheduled === true && !initialRefresh,
         insertedArticleCount,

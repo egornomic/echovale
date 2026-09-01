@@ -25,9 +25,10 @@ export class FolderRepository {
                   SELECT COUNT(*)
                   FROM descendants
                   JOIN feeds ON feeds.folder_id = descendants.id
-                  JOIN articles ON articles.feed_id = feeds.id
+                  JOIN feed_articles ON feed_articles.feed_id = feeds.id
+                  JOIN articles ON articles.id = feed_articles.article_id
                   WHERE descendants.root_id = folders.id
-                    AND articles.is_read = 0
+                    AND feed_articles.is_read = 0
                     AND ${visibleClause}
                 ) AS unreadCount
          FROM folders

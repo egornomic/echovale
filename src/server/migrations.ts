@@ -910,11 +910,384 @@ const migrations: Migration[] = [
       SET name = CASE backed_up WHEN 1 THEN 'Synced passkey' ELSE 'Device passkey' END;
     `,
   },
+  {
+    foreignKeysOff: true,
+    sql: `
+      ALTER TABLE feeds RENAME TO feeds_account_owned;
+      ALTER TABLE articles RENAME TO articles_account_owned;
+      ALTER TABLE rules RENAME TO rules_account_owned;
+      ALTER TABLE article_rule_matches RENAME TO article_rule_matches_account_owned;
+      ALTER TABLE article_ai_summaries RENAME TO article_ai_summaries_account_owned;
+      ALTER TABLE article_ai_translations RENAME TO article_ai_translations_account_owned;
+      ALTER TABLE web_feed_configs RENAME TO web_feed_configs_account_owned;
+      ALTER TABLE ignored_feed_articles RENAME TO ignored_feed_articles_account_owned;
+
+      DROP INDEX IF EXISTS articles_feed_id_idx;
+      DROP INDEX IF EXISTS articles_read_idx;
+      DROP INDEX IF EXISTS articles_published_idx;
+      DROP INDEX IF EXISTS articles_url_discovered_idx;
+      DROP INDEX IF EXISTS articles_title_discovered_idx;
+      DROP INDEX IF EXISTS articles_starred_at_idx;
+      DROP INDEX IF EXISTS feeds_user_id_idx;
+      DROP INDEX IF EXISTS feeds_folder_id_idx;
+      DROP INDEX IF EXISTS rules_user_id_idx;
+      DROP INDEX IF EXISTS rules_feed_id_idx;
+      DROP INDEX IF EXISTS rules_folder_id_idx;
+
+      CREATE TABLE feed_sources (
+        id INTEGER PRIMARY KEY,
+        feed_url TEXT NOT NULL,
+        site_url TEXT,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('published', 'web')),
+        source_config_key TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        refreshing INTEGER NOT NULL DEFAULT 0,
+        etag TEXT,
+        last_modified TEXT,
+        last_attempt_at TEXT,
+        last_success_at TEXT,
+        last_http_status INTEGER,
+        last_error TEXT,
+        next_poll_at TEXT,
+        health_status TEXT NOT NULL DEFAULT 'healthy'
+          CHECK(health_status IN ('healthy', 'failing', 'needs_attention')),
+        last_error_kind TEXT
+          CHECK(last_error_kind IS NULL OR last_error_kind IN (
+            'network', 'http', 'timeout', 'parse', 'inaccessible', 'access_blocked',
+            'javascript_timeout', 'unsupported_content', 'selection_broken'
+          )),
+        poll_interval_minutes INTEGER NOT NULL DEFAULT 60
+          CHECK(poll_interval_minutes IN (5, 10, 20, 30, 60)),
+        activity_rate_per_hour REAL
+          CHECK(activity_rate_per_hour IS NULL OR activity_rate_per_hour >= 0),
+        last_scheduled_observation_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(source_kind, feed_url, source_config_key)
+      );
+
+      CREATE TABLE source_web_feed_configs (
+        source_id INTEGER PRIMARY KEY REFERENCES feed_sources(id) ON DELETE CASCADE,
+        config_json TEXT NOT NULL CHECK(json_valid(config_json)),
+        selection_revision INTEGER NOT NULL DEFAULT 1 CHECK(selection_revision > 0),
+        last_match_count INTEGER NOT NULL CHECK(last_match_count >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TEMP TABLE feed_source_map (
+        feed_id INTEGER PRIMARY KEY,
+        source_id INTEGER NOT NULL
+      );
+
+      INSERT INTO feed_source_map (feed_id, source_id)
+      SELECT feed.id,
+             (
+               SELECT MIN(candidate.id)
+               FROM feeds_account_owned candidate
+               LEFT JOIN web_feed_configs_account_owned candidate_config
+                 ON candidate_config.feed_id = candidate.id
+               WHERE candidate.source_kind = feed.source_kind
+                 AND candidate.feed_url = feed.feed_url
+                 AND COALESCE(candidate_config.config_json, '') = COALESCE(config.config_json, '')
+             )
+      FROM feeds_account_owned feed
+      LEFT JOIN web_feed_configs_account_owned config ON config.feed_id = feed.id;
+
+      INSERT INTO feed_sources (
+        id, feed_url, site_url, source_kind, source_config_key, title, refreshing,
+        etag, last_modified, last_attempt_at, last_success_at, last_http_status,
+        last_error, next_poll_at, health_status, last_error_kind, poll_interval_minutes,
+        activity_rate_per_hour, last_scheduled_observation_at, created_at, updated_at
+      )
+      SELECT feed.id, feed.feed_url, feed.site_url, feed.source_kind,
+             COALESCE(config.config_json, ''), feed.title, feed.refreshing,
+             feed.etag, feed.last_modified, feed.last_attempt_at, feed.last_success_at,
+             feed.last_http_status, feed.last_error, feed.next_poll_at, feed.health_status,
+             feed.last_error_kind, feed.poll_interval_minutes, feed.activity_rate_per_hour,
+             feed.last_scheduled_observation_at, feed.created_at, feed.updated_at
+      FROM feeds_account_owned feed
+      JOIN feed_source_map map ON map.feed_id = feed.id AND map.source_id = feed.id
+      LEFT JOIN web_feed_configs_account_owned config ON config.feed_id = feed.id;
+
+      INSERT INTO source_web_feed_configs (
+        source_id, config_json, selection_revision, last_match_count, created_at, updated_at
+      )
+      SELECT map.source_id, config.config_json, config.selection_revision,
+             config.last_match_count, config.created_at, config.updated_at
+      FROM web_feed_configs_account_owned config
+      JOIN feed_source_map map ON map.feed_id = config.feed_id
+      WHERE map.feed_id = map.source_id;
+
+      CREATE TABLE feeds (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        source_id INTEGER NOT NULL REFERENCES feed_sources(id) ON DELETE CASCADE,
+        folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        paused INTEGER NOT NULL DEFAULT 0,
+        initialized_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(user_id, source_id)
+      );
+
+      INSERT INTO feeds (
+        id, user_id, source_id, folder_id, title, paused, initialized_at, created_at, updated_at
+      )
+      SELECT old.id, old.user_id, map.source_id, old.folder_id, old.title, old.paused,
+             old.last_success_at, old.created_at, old.updated_at
+      FROM feeds_account_owned old
+      JOIN feed_source_map map ON map.feed_id = old.id;
+
+      CREATE TABLE articles (
+        id INTEGER PRIMARY KEY,
+        source_id INTEGER NOT NULL REFERENCES feed_sources(id) ON DELETE CASCADE,
+        external_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        url TEXT,
+        author TEXT,
+        published_at TEXT,
+        discovered_at TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        feed_content_html TEXT,
+        content_html TEXT,
+        content_source TEXT CHECK(content_source IN ('article', 'feed')),
+        extraction_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(extraction_status IN ('pending', 'processing', 'complete', 'failed', 'feed')),
+        extraction_error TEXT,
+        image_url TEXT,
+        media_json TEXT,
+        content_revision INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(source_id, external_id)
+      );
+
+      CREATE TEMP TABLE article_source_map (
+        old_article_id INTEGER PRIMARY KEY,
+        article_id INTEGER NOT NULL,
+        feed_id INTEGER NOT NULL
+      );
+
+      INSERT INTO article_source_map (old_article_id, article_id, feed_id)
+      SELECT old.id,
+             (
+               SELECT candidate.id
+               FROM articles_account_owned candidate
+               JOIN feed_source_map candidate_map ON candidate_map.feed_id = candidate.feed_id
+               WHERE candidate_map.source_id = source_map.source_id
+                 AND candidate.external_id = old.external_id
+               ORDER BY candidate.content_html IS NOT NULL DESC,
+                        candidate.extraction_status = 'complete' DESC,
+                        candidate.content_revision DESC,
+                        candidate.id
+               LIMIT 1
+             ),
+             old.feed_id
+      FROM articles_account_owned old
+      JOIN feed_source_map source_map ON source_map.feed_id = old.feed_id;
+
+      INSERT INTO articles (
+        id, source_id, external_id, title, url, author, published_at, discovered_at, summary,
+        feed_content_html, content_html, content_source, extraction_status, extraction_error,
+        image_url, media_json, content_revision
+      )
+      SELECT old.id, source_map.source_id, old.external_id, old.title, old.url, old.author,
+             old.published_at, old.discovered_at, old.summary, old.feed_content_html,
+             old.content_html, old.content_source, old.extraction_status, old.extraction_error,
+             old.image_url, old.media_json, old.content_revision
+      FROM articles_account_owned old
+      JOIN article_source_map article_map ON article_map.old_article_id = old.id
+                                           AND article_map.article_id = old.id
+      JOIN feed_source_map source_map ON source_map.feed_id = old.feed_id;
+
+      CREATE TABLE feed_articles (
+        feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+        article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        delivered_at TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        is_starred INTEGER NOT NULL DEFAULT 0,
+        starred_at TEXT,
+        PRIMARY KEY(feed_id, article_id)
+      );
+
+      INSERT INTO feed_articles (
+        feed_id, article_id, delivered_at, is_read, is_starred, starred_at
+      )
+      SELECT map.feed_id, map.article_id, old.discovered_at,
+             old.is_read, old.is_starred, old.starred_at
+      FROM articles_account_owned old
+      JOIN article_source_map map ON map.old_article_id = old.id;
+
+      CREATE TABLE ignored_feed_articles (
+        feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+        external_id TEXT NOT NULL,
+        PRIMARY KEY(feed_id, external_id)
+      );
+
+      INSERT INTO ignored_feed_articles (feed_id, external_id)
+      SELECT feed_id, external_id FROM ignored_feed_articles_account_owned;
+
+      CREATE TABLE rules (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        feed_id INTEGER REFERENCES feeds(id) ON DELETE CASCADE,
+        folder_id INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+        conditions_json TEXT NOT NULL CHECK(json_valid(conditions_json)),
+        condition_operator TEXT NOT NULL CHECK(condition_operator IN ('and', 'or')),
+        action TEXT NOT NULL CHECK(action IN ('hide', 'mark_read', 'keep')),
+        enabled INTEGER NOT NULL DEFAULT 1,
+        matched_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO rules SELECT * FROM rules_account_owned;
+
+      CREATE TABLE article_rule_matches (
+        feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+        article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        rule_id INTEGER NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+        PRIMARY KEY(feed_id, article_id, rule_id)
+      );
+
+      INSERT OR IGNORE INTO article_rule_matches (feed_id, article_id, rule_id)
+      SELECT map.feed_id, map.article_id, old.rule_id
+      FROM article_rule_matches_account_owned old
+      JOIN article_source_map map ON map.old_article_id = old.article_id;
+
+      CREATE TABLE article_ai_summaries (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        source_revision INTEGER NOT NULL,
+        prompt_version INTEGER NOT NULL,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('full', 'feed', 'excerpt')),
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        summary_text TEXT NOT NULL,
+        input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+        output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+        generated_at TEXT NOT NULL,
+        prompt_id TEXT,
+        PRIMARY KEY(user_id, article_id)
+      );
+
+      INSERT OR REPLACE INTO article_ai_summaries (
+        user_id, article_id, source_revision, prompt_version, source_kind, provider, model,
+        summary_text, input_tokens, output_tokens, generated_at, prompt_id
+      )
+      SELECT old_feed.user_id, map.article_id, summary.source_revision,
+             summary.prompt_version, summary.source_kind, summary.provider, summary.model,
+             summary.summary_text, summary.input_tokens, summary.output_tokens,
+             summary.generated_at, summary.prompt_id
+      FROM article_ai_summaries_account_owned summary
+      JOIN article_source_map map ON map.old_article_id = summary.article_id
+      JOIN feeds_account_owned old_feed ON old_feed.id = map.feed_id;
+
+      CREATE TABLE article_ai_translations (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        target_language TEXT NOT NULL COLLATE NOCASE,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('full', 'feed', 'excerpt')),
+        source_revision INTEGER NOT NULL,
+        prompt_version INTEGER NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        translation_html TEXT NOT NULL,
+        input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+        output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+        generated_at TEXT NOT NULL,
+        PRIMARY KEY(user_id, article_id, target_language, source_kind)
+      );
+
+      INSERT OR REPLACE INTO article_ai_translations (
+        user_id, article_id, target_language, source_kind, source_revision, prompt_version,
+        provider, model, translation_html, input_tokens, output_tokens, generated_at
+      )
+      SELECT old_feed.user_id, map.article_id, translation.target_language,
+             translation.source_kind, translation.source_revision, translation.prompt_version,
+             translation.provider, translation.model, translation.translation_html,
+             translation.input_tokens, translation.output_tokens, translation.generated_at
+      FROM article_ai_translations_account_owned translation
+      JOIN article_source_map map ON map.old_article_id = translation.article_id
+      JOIN feeds_account_owned old_feed ON old_feed.id = map.feed_id;
+
+      DROP TABLE article_rule_matches_account_owned;
+      DROP TABLE rules_account_owned;
+      DROP TABLE article_ai_summaries_account_owned;
+      DROP TABLE article_ai_translations_account_owned;
+      DROP TABLE ignored_feed_articles_account_owned;
+      DROP TABLE web_feed_configs_account_owned;
+      DROP TABLE articles_account_owned;
+      DROP TABLE feeds_account_owned;
+      DROP TABLE article_source_map;
+      DROP TABLE feed_source_map;
+
+      CREATE INDEX feed_sources_due_idx ON feed_sources(next_poll_at) WHERE refreshing = 0;
+      CREATE INDEX feeds_user_id_idx ON feeds(user_id);
+      CREATE INDEX feeds_source_id_idx ON feeds(source_id);
+      CREATE INDEX feeds_folder_id_idx ON feeds(folder_id);
+      CREATE INDEX articles_source_id_idx ON articles(source_id);
+      CREATE INDEX articles_published_idx ON articles(published_at DESC);
+      CREATE INDEX articles_url_discovered_idx
+        ON articles(url, discovered_at) WHERE url IS NOT NULL;
+      CREATE INDEX articles_title_discovered_idx
+        ON articles(title, discovered_at) WHERE title <> '';
+      CREATE INDEX feed_articles_article_id_idx ON feed_articles(article_id);
+      CREATE INDEX feed_articles_read_idx ON feed_articles(feed_id, is_read);
+      CREATE INDEX feed_articles_starred_at_idx
+        ON feed_articles(feed_id, is_starred, starred_at DESC);
+      CREATE INDEX rules_user_id_idx ON rules(user_id);
+      CREATE INDEX rules_feed_id_idx ON rules(feed_id);
+      CREATE INDEX rules_folder_id_idx ON rules(folder_id);
+    `,
+  },
+  {
+    sql: `
+      UPDATE source_web_feed_configs
+      SET config_json = json_remove(config_json, '$.minimumItemCount');
+
+      UPDATE settings
+      SET summary_prompt = ${sqlString(DEFAULT_ARTICLE_SUMMARY_PROMPT)}
+      WHERE summary_prompt IN (
+        ${PLAIN_TEXT_ARTICLE_SUMMARY_PROMPTS.map(sqlString).join(",\n        ")}
+      );
+
+      DELETE FROM article_ai_summaries;
+
+      UPDATE ai_feature_settings
+      SET model = 'gemini-3.6-flash', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE provider = 'gemini'
+        AND model IN ('gemini-3.1-flash-lite', 'gemini-3.5-flash-lite');
+
+      UPDATE settings
+      SET custom_prompts_json = json_insert(
+        custom_prompts_json,
+        '$[#]',
+        json(${sqlString(JSON.stringify(DEFAULT_FACTCHECK_PROMPT))})
+      )
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM json_each(settings.custom_prompts_json) AS prompt
+        WHERE json_extract(prompt.value, '$.id') = ${sqlString(DEFAULT_FACTCHECK_PROMPT.id)}
+           OR replace(
+                replace(lower(trim(json_extract(prompt.value, '$.name'))), '-', ''),
+                ' ',
+                ''
+              ) = 'factcheck'
+      );
+
+      UPDATE ai_feature_settings
+      SET model = 'claude-haiku-4-5', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE provider = 'anthropic' AND model = 'claude-haiku-4-5-20251001';
+    `,
+  },
 ];
 
 export function migrateDatabase(
   database: Sqlite.Database,
   webFeedPollIntervalMinutes: number,
+  throughVersion = migrations.length,
 ): void {
   database.exec(
     "CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
@@ -924,7 +1297,7 @@ export function migrateDatabase(
       ({ version }) => version,
     ),
   );
-  for (let index = 0; index < migrations.length; index += 1) {
+  for (let index = 0; index < Math.min(throughVersion, migrations.length); index += 1) {
     if (appliedVersions.has(index + 1)) continue;
     const migration = migrations[index];
     const apply = database.transaction(() => {

@@ -144,14 +144,15 @@ export class RuleRepository {
       this.sqlite.prepare("UPDATE rules SET matched_count = 0 WHERE id = ?").run(ruleId);
       const rows = this.sqlite
         .prepare(
-          `SELECT articles.id
-           FROM articles
-           JOIN feeds ON feeds.id = articles.feed_id
+          `SELECT articles.id, feeds.id AS feedId
+           FROM feed_articles
+           JOIN articles ON articles.id = feed_articles.article_id
+           JOIN feeds ON feeds.id = feed_articles.feed_id
            JOIN rules ON rules.user_id = feeds.user_id
            WHERE rules.id = ?`,
         )
-        .all(ruleId) as Array<{ id: number }>;
-      for (const row of rows) this.applyRuleToArticle(ruleId, row.id);
+        .all(ruleId) as Array<{ id: number; feedId: number }>;
+      for (const row of rows) this.applyRuleToArticle(ruleId, row.feedId, row.id);
     });
     run();
   }
@@ -165,16 +166,18 @@ export class RuleRepository {
     for (const articleId of articleIds) {
       recomputed = true;
       this.sqlite.prepare("DELETE FROM article_rule_matches WHERE article_id = ?").run(articleId);
-      const rules = this.sqlite
+      const deliveries = this.sqlite
         .prepare(
-          `SELECT rules.id
+          `SELECT rules.id, feeds.id AS feedId
            FROM rules
            JOIN feeds ON feeds.user_id = rules.user_id
-           JOIN articles ON articles.feed_id = feeds.id
-           WHERE articles.id = ?`,
+           JOIN feed_articles ON feed_articles.feed_id = feeds.id
+           WHERE feed_articles.article_id = ?`,
         )
-        .all(articleId) as Array<{ id: number }>;
-      for (const rule of rules) this.applyRuleToArticle(rule.id, articleId);
+        .all(articleId) as Array<{ id: number; feedId: number }>;
+      for (const delivery of deliveries) {
+        this.applyRuleToArticle(delivery.id, delivery.feedId, articleId);
+      }
     }
     if (!recomputed) return;
     this.sqlite
@@ -191,27 +194,31 @@ export class RuleRepository {
     const articles = this.sqlite
       .prepare(
         `SELECT articles.id
-         FROM articles JOIN feeds ON feeds.id = articles.feed_id
+         FROM feed_articles
+         JOIN articles ON articles.id = feed_articles.article_id
+         JOIN feeds ON feeds.id = feed_articles.feed_id
          WHERE feeds.user_id = ?`,
       )
       .all(userId) as Array<{ id: number }>;
     this.recomputeRulesForArticles(articles.map((article) => article.id));
   }
 
-  private applyRuleToArticle(ruleId: number, articleId: number): void {
+  private applyRuleToArticle(ruleId: number, feedId: number, articleId: number): void {
     const rule = this.sqlite.prepare("SELECT * FROM rules WHERE id = ?").get(ruleId) as
       | Row
       | undefined;
     const article = this.sqlite
       .prepare(
-        `SELECT articles.*, feeds.folder_id, feeds.user_id AS userId
-         FROM articles JOIN feeds ON feeds.id = articles.feed_id
-         WHERE articles.id = ?`,
+        `SELECT articles.*, feeds.id AS feedId, feeds.folder_id, feeds.user_id AS userId
+         FROM feed_articles
+         JOIN articles ON articles.id = feed_articles.article_id
+         JOIN feeds ON feeds.id = feed_articles.feed_id
+         WHERE articles.id = ? AND feeds.id = ?`,
       )
-      .get(articleId) as Row | undefined;
+      .get(articleId, feedId) as Row | undefined;
     if (!rule || !article) return;
     if (Number(rule.user_id) !== Number(article.userId)) return;
-    if (rule.feed_id !== null && Number(rule.feed_id) !== Number(article.feed_id)) return;
+    if (rule.feed_id !== null && Number(rule.feed_id) !== Number(article.feedId)) return;
     if (rule.folder_id !== null) {
       const inScope = this.sqlite
         .prepare(
@@ -248,14 +255,19 @@ export class RuleRepository {
         : conditions.some(matchesCondition);
     if (!matched) return;
     const inserted = this.sqlite
-      .prepare("INSERT OR IGNORE INTO article_rule_matches (article_id, rule_id) VALUES (?, ?)")
-      .run(articleId, ruleId);
+      .prepare(
+        `INSERT OR IGNORE INTO article_rule_matches (feed_id, article_id, rule_id)
+         VALUES (?, ?, ?)`,
+      )
+      .run(feedId, articleId, ruleId);
     if (inserted.changes === 0) return;
     this.sqlite
       .prepare("UPDATE rules SET matched_count = matched_count + 1 WHERE id = ?")
       .run(ruleId);
     if (rule.enabled === 1 && rule.action === "mark_read") {
-      this.sqlite.prepare("UPDATE articles SET is_read = 1 WHERE id = ?").run(articleId);
+      this.sqlite
+        .prepare("UPDATE feed_articles SET is_read = 1 WHERE feed_id = ? AND article_id = ?")
+        .run(feedId, articleId);
     }
   }
 }

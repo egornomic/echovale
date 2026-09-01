@@ -12,7 +12,6 @@ import {
   DEFAULT_ARTICLE_TRANSLATION_PROMPT,
   DEFAULT_CUSTOM_PROMPTS,
 } from "../../src/shared/ai-prompts.js";
-import { removeSavedArticleTimestampMigration } from "./migration-fixtures.js";
 
 const directories: string[] = [];
 
@@ -27,6 +26,77 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("merges duplicate account-owned feeds without merging personal article state", () => {
+    const sqlite = new Sqlite(":memory:");
+    sqlite.pragma("foreign_keys = ON");
+    try {
+      migrateDatabase(sqlite, 60, 36);
+      sqlite
+        .prepare(
+          `INSERT INTO users (
+             id, username, password_hash, enabled, created_at, updated_at, webauthn_user_id
+           ) VALUES (2, 'second-reader', '', 1, ?, ?, randomblob(32))`,
+        )
+        .run("2026-09-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z");
+      const settingColumns = (
+        sqlite.prepare("PRAGMA table_info(settings)").all() as Array<{ name: string }>
+      )
+        .map(({ name }) => name)
+        .filter((name) => name !== "user_id");
+      sqlite.exec(
+        `INSERT INTO settings (user_id, ${settingColumns.join(", ")})
+         SELECT 2, ${settingColumns.join(", ")} FROM settings WHERE user_id = 1`,
+      );
+      const insertFeed = sqlite.prepare(
+        `INSERT INTO feeds (
+           id, user_id, title, feed_url, created_at, updated_at, poll_interval_minutes
+         ) VALUES (?, ?, ?, 'https://example.test/shared.xml', ?, ?, 20)`,
+      );
+      insertFeed.run(1, 1, "First copy", "2026-09-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z");
+      insertFeed.run(2, 2, "Second copy", "2026-09-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z");
+      const insertArticle = sqlite.prepare(
+        `INSERT INTO articles (
+           id, feed_id, external_id, title, discovered_at, is_read, is_starred
+         ) VALUES (?, ?, 'shared-entry', 'Shared entry', ?, ?, ?)`,
+      );
+      insertArticle.run(1, 1, "2026-09-01T00:00:00.000Z", 1, 0);
+      insertArticle.run(2, 2, "2026-09-01T00:00:00.000Z", 0, 1);
+      sqlite
+        .prepare(
+          `UPDATE articles
+           SET content_html = '<p>Preserved extraction</p>', content_source = 'article',
+               extraction_status = 'complete', content_revision = 3
+           WHERE id = 2`,
+        )
+        .run();
+
+      migrateDatabase(sqlite, 60);
+
+      expect(sqlite.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(1);
+      expect(sqlite.prepare("SELECT COUNT(*) FROM feeds").pluck().get()).toBe(2);
+      expect(sqlite.prepare("SELECT COUNT(*) FROM articles").pluck().get()).toBe(1);
+      expect(sqlite.prepare("SELECT content_html FROM articles").pluck().get()).toBe(
+        "<p>Preserved extraction</p>",
+      );
+      expect(
+        sqlite
+          .prepare(
+            `SELECT feeds.user_id AS userId, feed_articles.is_read AS isRead,
+                    feed_articles.is_starred AS isStarred
+             FROM feed_articles
+             JOIN feeds ON feeds.id = feed_articles.feed_id
+             ORDER BY feeds.user_id`,
+          )
+          .all(),
+      ).toEqual([
+        { userId: 1, isRead: 1, isStarred: 0 },
+        { userId: 2, isRead: 0, isStarred: 1 },
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("adds the standard quotation mark to stored blockquotes without duplicating punctuation", () => {
     const database = new AppDatabase(":memory:");
     try {
@@ -136,18 +206,12 @@ describe("database migrations", () => {
       });
       database.connection
         .prepare(
-          `UPDATE web_feed_configs
+          `UPDATE source_web_feed_configs
            SET config_json = json_set(config_json, '$.minimumItemCount', 3)
-           WHERE feed_id = ?`,
+           WHERE source_id = (SELECT source_id FROM feeds WHERE id = ?)`,
         )
         .run(feed.id);
-      database.connection
-        .prepare("DELETE FROM migrations WHERE version >= 29 AND version < 35")
-        .run();
-      removeSavedArticleTimestampMigration(database.connection);
-      database.connection.exec("ALTER TABLE feeds DROP COLUMN last_scheduled_observation_at");
-      database.connection.exec("ALTER TABLE feeds DROP COLUMN activity_rate_per_hour");
-      database.connection.exec("ALTER TABLE feeds DROP COLUMN poll_interval_minutes");
+      database.connection.prepare("DELETE FROM migrations WHERE version >= 38").run();
 
       migrateDatabase(database.connection, 180);
 
@@ -256,15 +320,7 @@ Return only the summary in plain text.`,
         usage: { inputTokens: 10, outputTokens: 5 },
       });
 
-      database.connection
-        .prepare("DELETE FROM migrations WHERE version >= 22 AND version < 35")
-        .run();
-      removeSavedArticleTimestampMigration(database.connection);
-      database.connection.exec("ALTER TABLE settings DROP COLUMN show_youtube_descriptions");
-      database.connection.exec("DROP TABLE ignored_feed_articles");
-      database.connection.exec("ALTER TABLE feeds DROP COLUMN last_scheduled_observation_at");
-      database.connection.exec("ALTER TABLE feeds DROP COLUMN activity_rate_per_hour");
-      database.connection.exec("ALTER TABLE feeds DROP COLUMN poll_interval_minutes");
+      database.connection.prepare("DELETE FROM migrations WHERE version >= 38").run();
       migrateDatabase(database.connection, 20);
 
       expect(database.settings.getSettings(reader.id).summaryPrompt).toBe(
@@ -597,7 +653,11 @@ Return only the summary in plain text.`,
       expect(database.articles.getArticle(1, 5)?.feedContentHtml).toContain("article-quote-mark");
       expect(
         database.connection
-          .prepare("SELECT etag, last_modified AS lastModified FROM feeds WHERE id = 2")
+          .prepare(
+            `SELECT etag, last_modified AS lastModified
+             FROM feed_sources
+             WHERE id = (SELECT source_id FROM feeds WHERE id = 2)`,
+          )
           .get(),
       ).toEqual({ etag: null, lastModified: null });
       expect(database.folders.createFolder(1, { name: "Default order" })).toMatchObject({
@@ -605,15 +665,18 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        36,
+        38,
       );
       expect(
-        database.connection.prepare("SELECT starred_at FROM articles WHERE id = 3").pluck().get(),
+        database.connection
+          .prepare("SELECT starred_at FROM feed_articles WHERE article_id = 3")
+          .pluck()
+          .get(),
       ).toBe("2026-07-13T00:00:00.000Z");
       expect(
         database.connection
           .prepare(
-            `SELECT name FROM pragma_table_info('feeds')
+            `SELECT name FROM pragma_table_info('feed_sources')
              WHERE name IN (
                'source_kind', 'health_status', 'last_error_kind', 'poll_interval_minutes',
                'activity_rate_per_hour', 'last_scheduled_observation_at'
@@ -633,11 +696,11 @@ Return only the summary in plain text.`,
       expect(
         database.connection
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'web_feed_configs'",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_web_feed_configs'",
           )
           .pluck()
           .get(),
-      ).toBe("web_feed_configs");
+      ).toBe("source_web_feed_configs");
       expect(
         database.connection
           .prepare(
@@ -658,7 +721,7 @@ Return only the summary in plain text.`,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        36,
+        38,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

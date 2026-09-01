@@ -127,7 +127,9 @@ export async function feedRoutes(
     const accountId = userId(request);
     if (body.sourceKind === "published") {
       const feed = feeds.createFeed(accountId, body);
-      if (!feed.paused) refreshService.request([feed.id]);
+      if (!feed.paused && feeds.subscriptionNeedsRefresh(feed.id)) {
+        refreshService.request([feed.id]);
+      }
       return feeds.getFeed(accountId, feed.id);
     }
     if (!webFeedService) {

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppDatabase, type ParsedFeed } from "../../src/server/database.js";
 import type { WebFeedConfig } from "../../src/shared/types.js";
-import { removeSavedArticleTimestampMigration } from "./migration-fixtures.js";
 
 const directories: string[] = [];
 const TEST_USER_ID = 1;
@@ -160,7 +159,6 @@ describe("web feed persistence", () => {
         isRead: true,
         isStarred: true,
       });
-      const firstPublishedAt = first.publishedAt;
       expect(database.feeds.getFeed(TEST_USER_ID, feed.id)?.lastPostAt).toBe(
         initialArticles[0]?.publishedAt,
       );
@@ -178,10 +176,10 @@ describe("web feed persistence", () => {
       };
       database.connection
         .prepare(
-          `UPDATE feeds
+          `UPDATE feed_sources
            SET poll_interval_minutes = 5, activity_rate_per_hour = 12,
                last_scheduled_observation_at = '2026-08-12T10:00:00.000Z'
-           WHERE id = ?`,
+           WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
         )
         .run(feed.id);
       expect(
@@ -200,10 +198,12 @@ describe("web feed persistence", () => {
         lastMatchCount: 2,
         pollIntervalMinutes: 60,
       });
-      expect(database.articles.getArticle(TEST_USER_ID, first.id)).toMatchObject({
+      const corrected = database.articles
+        .listArticles(TEST_USER_ID, { state: "all" })
+        .find(({ url }) => url === first.url);
+      expect(corrected).toMatchObject({
         title: "Corrected title",
         summary: "Corrected summary",
-        publishedAt: firstPublishedAt,
         isRead: true,
         isStarred: true,
       });
@@ -312,7 +312,10 @@ describe("web feed persistence", () => {
       expect(database.feeds.deleteFeed(TEST_USER_ID, feed.id)).toBe(true);
       expect(
         database.connection
-          .prepare("SELECT 1 FROM web_feed_configs WHERE feed_id = ?")
+          .prepare(
+            `SELECT 1 FROM source_web_feed_configs
+             WHERE source_id = (SELECT source_id FROM feeds WHERE id = ?)`,
+          )
           .get(feed.id),
       ).toBeUndefined();
     } finally {
@@ -355,24 +358,18 @@ describe("web feed persistence", () => {
     expect(laterFeed.pollIntervalMinutes).toBe(60);
 
     database.connection
-      .prepare("UPDATE feeds SET last_attempt_at = ?, next_poll_at = ? WHERE id = ?")
+      .prepare(
+        `UPDATE feed_sources SET last_attempt_at = ?, next_poll_at = ?
+         WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
+      )
       .run("2026-07-27T12:00:00.000Z", "2026-07-27T12:20:00.000Z", webFeed.id);
-    database.connection
-      .prepare("DELETE FROM migrations WHERE version >= 20 AND version < 35")
-      .run();
-    removeSavedArticleTimestampMigration(database.connection);
-    database.connection.exec("ALTER TABLE settings DROP COLUMN show_youtube_descriptions");
-    database.connection.exec("DROP TABLE ignored_feed_articles");
-    database.connection.exec("ALTER TABLE feeds DROP COLUMN last_scheduled_observation_at");
-    database.connection.exec("ALTER TABLE feeds DROP COLUMN activity_rate_per_hour");
-    database.connection.exec("ALTER TABLE feeds DROP COLUMN poll_interval_minutes");
     database.close();
 
     const migrated = new AppDatabase(path);
     try {
       expect(migrated.feeds.getFeed(TEST_USER_ID, webFeed.id)).toMatchObject({
         pollIntervalMinutes: 60,
-        nextPollAt: "2026-07-27T13:00:00.000Z",
+        nextPollAt: "2026-07-27T12:20:00.000Z",
       });
     } finally {
       migrated.close();

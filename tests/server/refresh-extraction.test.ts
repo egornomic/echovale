@@ -587,7 +587,11 @@ describe("feed refresh and full-text extraction", () => {
 
     const setDiscoveredAge = (externalId: string, days: number) => {
       database.connection
-        .prepare("UPDATE articles SET discovered_at = ? WHERE external_id = ?")
+        .prepare(
+          `UPDATE feed_articles
+           SET delivered_at = ?
+           WHERE article_id = (SELECT id FROM articles WHERE external_id = ?)`,
+        )
         .run(new Date(Date.now() - days * 24 * 60 * 60 * 1_000).toISOString(), externalId);
     };
     setDiscoveredAge("two-day-one", 2);
@@ -630,8 +634,9 @@ describe("feed refresh and full-text extraction", () => {
     const readerArticleIds = database.connection
       .prepare(
         `SELECT articles.external_id
-         FROM articles
-         JOIN feeds ON feeds.id = articles.feed_id
+         FROM feed_articles
+         JOIN articles ON articles.id = feed_articles.article_id
+         JOIN feeds ON feeds.id = feed_articles.feed_id
          WHERE feeds.user_id = ?`,
       )
       .pluck()

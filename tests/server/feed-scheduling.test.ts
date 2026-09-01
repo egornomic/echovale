@@ -76,10 +76,10 @@ describe("adaptive feed scheduling", () => {
       });
       database.connection
         .prepare(
-          `UPDATE feeds
+          `UPDATE feed_sources
            SET poll_interval_minutes = 5, activity_rate_per_hour = 12,
                last_scheduled_observation_at = '2026-08-12T10:00:00.000Z'
-           WHERE id = ?`,
+           WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
         )
         .run(feed.id);
 
@@ -93,7 +93,8 @@ describe("adaptive feed scheduling", () => {
           .prepare(
             `SELECT activity_rate_per_hour AS activityRatePerHour,
                     last_scheduled_observation_at AS lastScheduledObservationAt
-             FROM feeds WHERE id = ?`,
+             FROM feed_sources
+             WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
           )
           .get(feed.id),
       ).toEqual({ activityRatePerHour: null, lastScheduledObservationAt: null });
@@ -133,9 +134,9 @@ describe("adaptive feed scheduling", () => {
       });
       database.connection
         .prepare(
-          `UPDATE feeds
+          `UPDATE feed_sources
            SET last_scheduled_observation_at = '2026-08-12T10:00:00.000Z'
-           WHERE id = ?`,
+           WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
         )
         .run(feed.id);
 
@@ -155,7 +156,8 @@ describe("adaptive feed scheduling", () => {
           .prepare(
             `SELECT poll_interval_minutes AS pollIntervalMinutes,
                     activity_rate_per_hour AS activityRatePerHour
-             FROM feeds WHERE id = ?`,
+             FROM feed_sources
+             WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
           )
           .get(feed.id),
       ).toEqual({ pollIntervalMinutes: 30, activityRatePerHour: 1 });
@@ -183,7 +185,8 @@ describe("adaptive feed scheduling", () => {
           .prepare(
             `SELECT activity_rate_per_hour AS activityRatePerHour,
                     last_scheduled_observation_at AS lastScheduledObservationAt
-             FROM feeds WHERE id = ?`,
+             FROM feed_sources
+             WHERE id = (SELECT source_id FROM feeds WHERE id = ?)`,
           )
           .get(feed.id),
       ).toEqual({
