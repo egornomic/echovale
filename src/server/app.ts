@@ -2,7 +2,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import fastifyStatic from "@fastify/static";
 import { SqliteError } from "better-sqlite3";
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyRequest,
+  type FastifyServerOptions,
+  LogController,
+} from "fastify";
 import { ZodError } from "zod";
 import { AiError } from "./ai/errors.js";
 import type { AppDatabase } from "./database.js";
@@ -20,6 +25,7 @@ import { opmlRoutes } from "./features/opml/routes.js";
 import { refreshRoutes } from "./features/refresh/routes.js";
 import { ruleRoutes } from "./features/rules/routes.js";
 import { settingsRoutes } from "./features/settings/routes.js";
+import { registerOperationalLogging } from "./logging.js";
 import type { FeedRefreshService } from "./refresh.js";
 import { TelegramMediaService } from "./telegram-media.js";
 import { WebFeedError, type WebFeedService } from "./web-feed.js";
@@ -36,16 +42,18 @@ export interface AppServices {
   xMediaService?: XMediaService;
   feedDiscoveryTimeoutMs?: number;
   staticDir?: string;
-  logger?: boolean;
+  logger?: FastifyServerOptions["logger"];
   publicOrigin?: string;
 }
 
 export async function createApp(services: AppServices): Promise<FastifyInstance> {
   const app = Fastify({
     logger: services.logger ?? false,
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 10 * 1024 * 1024,
     trustProxy: ["loopback", "linklocal", "uniquelocal"],
   });
+  registerOperationalLogging(app);
   const ai =
     services.aiService ??
     new AiService(services.database, {
@@ -63,7 +71,7 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
     return user.id;
   };
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof AiError) {
       reply.code(error.statusCode).send({ error: error.message, code: error.code });
       return;
@@ -95,7 +103,7 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
         return;
       }
     }
-    app.log.error(error);
+    request.log.error({ event: "request_handler_failed" }, "request handler failed");
     reply.code(500).send({ error: "The server could not complete the request. Try again." });
   });
 

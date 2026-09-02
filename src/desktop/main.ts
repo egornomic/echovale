@@ -273,7 +273,7 @@ function trackWindowState(window: BrowserWindow, initialState: WindowState): () 
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      void persist().catch((error) => console.error(error));
+      void persist().catch(() => console.error("feedfold could not save its window state"));
     }, WINDOW_STATE_SAVE_DELAY_MS);
   };
 
@@ -354,7 +354,7 @@ function errorResponse(error: unknown): DesktopResponse {
       };
     }
   }
-  console.error(error);
+  console.error("feedfold desktop request failed");
   return {
     ok: false,
     error: {
@@ -557,8 +557,8 @@ async function registerApplicationProtocol(): Promise<void> {
         path = join(clientRoot, "index.html");
         return htmlResponse(await readFile(path, "utf8"), appCsp);
       }
-    } catch (error) {
-      console.error(error);
+    } catch {
+      console.error("feedfold desktop resource request failed");
       return new Response("Could not load feedfold", { status: 500 });
     }
   });
@@ -699,14 +699,14 @@ if (!hasInstanceLock) {
     const closing = runtime;
     runtime = null;
     void Promise.all([closing.close(), flushWindowState?.() ?? Promise.resolve()])
-      .catch((error) => console.error(error))
+      .catch(() => console.error("feedfold desktop shutdown failed"))
       .finally(() => app.quit());
   });
   app
     .whenReady()
     .then(start)
     .catch((error) => {
-      console.error(error);
+      console.error("feedfold desktop startup failed");
       dialog.showErrorBox(
         "feedfold could not start",
         error instanceof Error ? error.message : String(error),

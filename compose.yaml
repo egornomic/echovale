@@ -46,6 +46,11 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
     stop_grace_period: 30s
 
 volumes:

@@ -8,6 +8,7 @@ import { deploymentPolicy } from "./deployment-policy.js";
 import { ExtractionQueue } from "./extraction.js";
 import { AiService } from "./features/ai/service.js";
 import { AuthService } from "./features/auth/service.js";
+import { productionListenMessage, productionLogger } from "./logging.js";
 import { closePublicNetwork } from "./public-network.js";
 import { FeedRefreshService } from "./refresh.js";
 import { WebFeedService } from "./web-feed.js";
@@ -103,7 +104,7 @@ const app = await createApp({
   aiService,
   feedDiscoveryTimeoutMs: feedFetchTimeoutMs,
   staticDir,
-  logger: process.env.NODE_ENV === "production",
+  logger: process.env.NODE_ENV === "production" ? productionLogger() : false,
   publicOrigin,
 });
 
@@ -118,8 +119,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     await webFeedService.close();
     await closePublicNetwork();
     database.close();
-  } catch (error) {
-    app.log.error(error, "feedfold did not shut down cleanly");
+  } catch {
+    app.log.error({ event: "shutdown_failed" }, "feedfold did not shut down cleanly");
     process.exitCode = 1;
   }
 }
@@ -130,9 +131,9 @@ process.once("SIGTERM", () => void shutdown("SIGTERM"));
 try {
   extractionQueue.start();
   refreshService.start();
-  await app.listen({ host, port });
-} catch (error) {
-  app.log.error(error);
+  await app.listen({ host, port, listenTextResolver: productionListenMessage });
+} catch {
+  app.log.error({ event: "startup_failed" }, "feedfold failed to start");
   await Promise.all([refreshService.stop(), extractionQueue.stop()]);
   await webFeedService.close();
   await closePublicNetwork();
