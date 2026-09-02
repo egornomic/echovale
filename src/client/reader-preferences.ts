@@ -26,7 +26,7 @@ function storedBoolean(key: string, fallback: boolean): boolean {
   return stored === "true";
 }
 
-function accountStorageKey(userId: number, setting: string): string {
+function accountStorageKey(userId: string, setting: string): string {
   return `feedfold-account-${userId}-${setting}`;
 }
 
@@ -35,7 +35,7 @@ export function resolveTheme(theme: Theme, prefersLight: boolean): ResolvedTheme
   return prefersLight ? "light" : "dark";
 }
 
-export function useReaderPreferences(userId: number) {
+export function useReaderPreferences(userId: string) {
   const [readingMode, setReadingMode] = useState<ReadingMode>(() =>
     storedValue<ReadingMode>(accountStorageKey(userId, "reading-mode"), "magazine"),
   );

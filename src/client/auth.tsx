@@ -1,4 +1,8 @@
-import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
+import {
+  browserSupportsWebAuthn,
+  startAuthentication,
+  startRegistration,
+} from "@simplewebauthn/browser";
 import { KeyRound, LoaderCircle, LogIn, UserPlus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import type { SessionUser } from "../shared/types";
@@ -81,6 +85,24 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
     }
   };
 
+  const createAccountWithPasskey = async () => {
+    setUsingPasskey(true);
+    setError(null);
+    try {
+      const { registrationId, options } = await api.passkeySignupOptions(username);
+      const response = await startRegistration({ optionsJSON: options });
+      onAuthenticated(await api.completePasskeySignup(registrationId, response));
+    } catch (caught) {
+      setError(
+        caught instanceof DOMException && caught.name === "NotAllowedError"
+          ? "Passkey creation was cancelled or timed out."
+          : errorMessage(caught),
+      );
+    } finally {
+      setUsingPasskey(false);
+    }
+  };
+
   const registering = mode === "register";
   const actionLabel = registering ? "Create account" : "Sign in";
   const progressLabel = registering ? "Creating account" : "Signing in";
@@ -99,6 +121,26 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
           </p>
         </div>
         <form className="login-form" onSubmit={submit}>
+          {!registering && passkeysAvailable ? (
+            <button
+              className="primary-button login-button"
+              type="button"
+              disabled={submitting || usingPasskey}
+              onClick={() => void signInWithPasskey()}
+            >
+              {usingPasskey ? (
+                <LoaderCircle className="spin" aria-hidden="true" size={16} />
+              ) : (
+                <KeyRound aria-hidden="true" size={16} />
+              )}
+              {usingPasskey ? "Waiting for passkey" : "Sign in with a passkey"}
+            </button>
+          ) : null}
+          {!registering && passkeysAvailable ? (
+            <div className="auth-divider">
+              <span>or</span>
+            </div>
+          ) : null}
           <label className="login-field" htmlFor="auth-username">
             <span>Username</span>
             <input
@@ -116,6 +158,26 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
               onChange={(event) => setUsername(event.target.value)}
             />
           </label>
+          {registering && passkeysAvailable ? (
+            <button
+              className="primary-button login-button"
+              type="button"
+              disabled={submitting || usingPasskey || username.trim().length < 3}
+              onClick={() => void createAccountWithPasskey()}
+            >
+              {usingPasskey ? (
+                <LoaderCircle className="spin" aria-hidden="true" size={16} />
+              ) : (
+                <KeyRound aria-hidden="true" size={16} />
+              )}
+              {usingPasskey ? "Creating passkey" : "Create account with a passkey"}
+            </button>
+          ) : null}
+          {registering && passkeysAvailable ? (
+            <div className="auth-divider">
+              <span>or</span>
+            </div>
+          ) : null}
           <label className="login-field" htmlFor="auth-password">
             <span>Password</span>
             <input
@@ -135,7 +197,13 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
               {error}
             </div>
           ) : null}
-          <button className="primary-button login-button" type="submit" disabled={submitting}>
+          <button
+            className={
+              passkeysAvailable ? "secondary-button login-button" : "primary-button login-button"
+            }
+            type="submit"
+            disabled={submitting || usingPasskey}
+          >
             {submitting ? (
               <LoaderCircle className="spin" aria-hidden="true" size={16} />
             ) : (
@@ -144,31 +212,11 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: (user: Session
             {submitting ? progressLabel : actionLabel}
           </button>
         </form>
-        {!registering && passkeysAvailable ? (
-          <>
-            <div className="auth-divider">
-              <span>or</span>
-            </div>
-            <button
-              className="secondary-button passkey-login-button"
-              type="button"
-              disabled={submitting || usingPasskey}
-              onClick={() => void signInWithPasskey()}
-            >
-              {usingPasskey ? (
-                <LoaderCircle className="spin" aria-hidden="true" size={16} />
-              ) : (
-                <KeyRound aria-hidden="true" size={16} />
-              )}
-              {usingPasskey ? "Waiting for passkey" : "Sign in with a passkey"}
-            </button>
-          </>
-        ) : null}
         {registering || registrationAvailable ? (
           <div className="auth-switch">
-            <span>{registering ? "Already have an account?" : "Setting up this server?"}</span>
+            <span>{registering ? "Already have an account?" : "Need an account?"}</span>
             <button type="button" onClick={switchMode} disabled={submitting || usingPasskey}>
-              {registering ? "Sign in" : "Create the first account"}
+              {registering ? "Sign in" : "Create account"}
             </button>
           </div>
         ) : (

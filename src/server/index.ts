@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { CredentialCipher } from "./ai/credential-cipher.js";
 import { createApp } from "./app.js";
 import { AppDatabase } from "./database.js";
-import { deploymentPolicy } from "./deployment-policy.js";
+import { deploymentPolicy, registrationAccountCap } from "./deployment-policy.js";
 import { ExtractionQueue } from "./extraction.js";
 import { AiService } from "./features/ai/service.js";
 import { AuthService } from "./features/auth/service.js";
@@ -77,11 +77,65 @@ const aiRequestTimeoutMs = positiveInteger(
 const staticDir = fileURLToPath(new URL("../client", import.meta.url));
 const publicOrigin = configuredPublicOrigin(process.env.FEEDFOLD_PUBLIC_ORIGIN);
 const policy = deploymentPolicy(process.env.FEEDFOLD_DEPLOYMENT_MODE);
+const registrationCooldownMinutes = positiveInteger(
+  process.env.FEEDFOLD_REGISTRATION_COOLDOWN_MINUTES,
+  60,
+  "FEEDFOLD_REGISTRATION_COOLDOWN_MINUTES",
+);
+const loginCooldownMinutes = positiveInteger(
+  process.env.FEEDFOLD_LOGIN_COOLDOWN_MINUTES,
+  15,
+  "FEEDFOLD_LOGIN_COOLDOWN_MINUTES",
+);
+const stepUpCooldownMinutes = positiveInteger(
+  process.env.FEEDFOLD_STEP_UP_COOLDOWN_MINUTES,
+  15,
+  "FEEDFOLD_STEP_UP_COOLDOWN_MINUTES",
+);
 
 mkdirSync(dirname(databasePath), { recursive: true });
 const database = new AppDatabase(databasePath, pollIntervalMinutes, policy);
 const authService = new AuthService(database.auth, pollIntervalMinutes, {
-  allowPublicRegistration: process.env.FEEDFOLD_ALLOW_PUBLIC_REGISTRATION === "1",
+  maxAccounts: registrationAccountCap(policy, process.env.FEEDFOLD_MAX_ACCOUNTS),
+  recentAuthenticationSeconds: positiveInteger(
+    process.env.FEEDFOLD_RECENT_AUTH_SECONDS,
+    300,
+    "FEEDFOLD_RECENT_AUTH_SECONDS",
+  ),
+  rateLimits: {
+    registrationPerIp: {
+      attempts: positiveInteger(
+        process.env.FEEDFOLD_REGISTRATION_IP_LIMIT,
+        10,
+        "FEEDFOLD_REGISTRATION_IP_LIMIT",
+      ),
+      windowMs: registrationCooldownMinutes * 60_000,
+    },
+    registrationGlobal: {
+      attempts: positiveInteger(
+        process.env.FEEDFOLD_REGISTRATION_GLOBAL_LIMIT,
+        100,
+        "FEEDFOLD_REGISTRATION_GLOBAL_LIMIT",
+      ),
+      windowMs: registrationCooldownMinutes * 60_000,
+    },
+    loginPerIp: {
+      attempts: positiveInteger(process.env.FEEDFOLD_LOGIN_IP_LIMIT, 50, "FEEDFOLD_LOGIN_IP_LIMIT"),
+      windowMs: loginCooldownMinutes * 60_000,
+    },
+    loginPerAccount: {
+      attempts: positiveInteger(
+        process.env.FEEDFOLD_LOGIN_ACCOUNT_LIMIT,
+        10,
+        "FEEDFOLD_LOGIN_ACCOUNT_LIMIT",
+      ),
+      windowMs: loginCooldownMinutes * 60_000,
+    },
+    stepUp: {
+      attempts: positiveInteger(process.env.FEEDFOLD_STEP_UP_LIMIT, 10, "FEEDFOLD_STEP_UP_LIMIT"),
+      windowMs: stepUpCooldownMinutes * 60_000,
+    },
+  },
 });
 const extractionQueue = new ExtractionQueue(database.extractions, 2, articleFetchTimeoutMs);
 const webFeedService = new WebFeedService({ timeoutMs: webFeedLoadTimeoutMs });

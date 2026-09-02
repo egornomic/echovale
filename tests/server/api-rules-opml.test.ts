@@ -45,7 +45,7 @@ describe("live API, OPML, and filtering rules", () => {
     const directory = await mkdtemp(join(tmpdir(), "feedfold-auth-test-"));
     cleanups.push(() => rm(directory, { recursive: true, force: true }));
     const database = new AppDatabase(join(directory, "feedfold.db"));
-    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const authService = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const extraction = new ExtractionQueue(database.extractions, 1, 1_000);
     const refresh = new FeedRefreshService(database.feeds, 1, 1_000);
     const app = await createApp({
@@ -93,7 +93,13 @@ describe("live API, OPML, and filtering rules", () => {
           headers: { cookie: registrationCookie },
         })
       ).json(),
-    ).toEqual({ user: { id: 1, username: "reader" } });
+    ).toEqual({
+      user: {
+        id: expect.stringMatching(/^[a-f0-9]{32}$/),
+        username: "reader",
+        hasPassword: true,
+      },
+    });
 
     const duplicate = await app.inject({
       method: "POST",
@@ -101,7 +107,9 @@ describe("live API, OPML, and filtering rules", () => {
       payload: { username: "READER", password: "another-password" },
     });
     expect(duplicate.statusCode).toBe(409);
-    expect(duplicate.json()).toEqual({ error: "That username is already in use." });
+    expect(duplicate.json()).toEqual({
+      error: "The account could not be created. Choose another name or try again.",
+    });
     expect(
       (
         await app.inject({

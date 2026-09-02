@@ -11,7 +11,7 @@ describe("account activity", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T10:00:00.000Z"));
     const database = new AppDatabase(":memory:");
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     try {
       const session = await auth.register("active-reader", "reader-password");
       if (!session) throw new Error("Test account was not created");
@@ -38,7 +38,7 @@ describe("account activity", () => {
 
   it("schedules a shared source only for recent unpaused subscribers", async () => {
     const database = new AppDatabase(":memory:", 20, PUBLIC_DEPLOYMENT_POLICY);
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const first = (await auth.register("first-reader", "reader-password"))?.user;
     const second = (await auth.register("second-reader", "reader-password"))?.user;
     if (!first || !second) throw new Error("Test accounts were not created");

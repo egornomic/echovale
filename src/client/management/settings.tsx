@@ -1,4 +1,8 @@
-import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
+import {
+  browserSupportsWebAuthn,
+  startAuthentication,
+  startRegistration,
+} from "@simplewebauthn/browser";
 import {
   AlertTriangle,
   Check,
@@ -31,7 +35,7 @@ import type {
   DuplicateArticleWindowDays,
 } from "../../shared/types";
 import { DUPLICATE_ARTICLE_WINDOW_DAYS } from "../../shared/types";
-import { api, errorMessage } from "../api";
+import { ApiError, api, errorMessage } from "../api";
 import type { ReaderDataMutations } from "../data-resource";
 import { isDesktopApp } from "../desktop";
 import { DropdownCombobox, DropdownSelect } from "../dropdown";
@@ -42,39 +46,46 @@ import { ShortcutReference } from "./shortcut-help";
 import "./dialogs.css";
 import "./settings.css";
 
-function AccountSettingsSection({ showToast }: { showToast: (message: string) => void }) {
-  const [passkeys, setPasskeys] = useState<Awaited<ReturnType<typeof api.passkeys>>>([]);
+type SensitiveAction = <T>(action: () => Promise<T>) => Promise<T>;
+
+interface PendingSensitiveAction {
+  operationId: string;
+  action: () => Promise<unknown>;
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+}
+
+function AccountSettingsSection({
+  showToast,
+  runSensitive,
+}: {
+  showToast: (message: string) => void;
+  runSensitive: SensitiveAction;
+}) {
+  const [passkeys, setPasskeys] = useState<Awaited<ReturnType<typeof api.passkeys>>["passkeys"]>(
+    [],
+  );
+  const [hasPassword, setHasPassword] = useState(false);
   const [passkeysAvailable, setPasskeysAvailable] = useState(false);
   const [loadingPasskeys, setLoadingPasskeys] = useState(true);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
-  const [passkeyToRemove, setPasskeyToRemove] = useState<string | null>(null);
-  const [passkeyPassword, setPasskeyPassword] = useState("");
-  const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [editingPasskeyId, setEditingPasskeyId] = useState<string | null>(null);
   const [passkeyName, setPasskeyName] = useState("");
   const [renamingPasskey, setRenamingPasskey] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const passkeyPasswordRef = useRef<HTMLInputElement>(null);
   const passkeyNameRef = useRef<HTMLInputElement>(null);
-
-  const resetPasskeyDialog = useCallback(() => {
-    setPasskeyToRemove(null);
-    setPasskeyPassword("");
-    setPasskeyError(null);
-  }, []);
-  const passkeyDialog = useAnimatedDialog(resetPasskeyDialog, { autoOpen: false });
 
   useEffect(() => {
     let active = true;
     void Promise.all([api.authConfig(), api.passkeys()])
-      .then(([config, savedPasskeys]) => {
+      .then(([config, credentials]) => {
         if (!active) return;
         setPasskeysAvailable(config.passkeysAvailable && browserSupportsWebAuthn());
-        setPasskeys(savedPasskeys);
+        setPasskeys(credentials.passkeys);
+        setHasPassword(credentials.hasPassword);
       })
       .catch((caught) => {
         if (active) setError(errorMessage(caught));
@@ -87,27 +98,16 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
     };
   }, []);
 
-  const openRemovePasskeyDialog = (id: string) => {
-    setEditingPasskeyId(null);
-    setPasskeyToRemove(id);
-    setPasskeyPassword("");
-    setPasskeyError(null);
-    passkeyDialog.open();
-    window.requestAnimationFrame(() => passkeyPasswordRef.current?.focus());
-  };
-
-  const closePasskeyDialog = () => {
-    if (!passkeyBusy) passkeyDialog.close();
-  };
-
   const addPasskey = async () => {
     setEditingPasskeyId(null);
     setPasskeyBusy(true);
     setError(null);
     try {
-      const { ceremonyId, options } = await api.passkeyRegistrationOptions();
-      const response = await startRegistration({ optionsJSON: options });
-      const { passkey } = await api.registerPasskey(ceremonyId, response);
+      const passkey = await runSensitive(async () => {
+        const { ceremonyId, options } = await api.passkeyRegistrationOptions();
+        const response = await startRegistration({ optionsJSON: options });
+        return (await api.registerPasskey(ceremonyId, response)).passkey;
+      });
       setPasskeys((current) => [passkey, ...current]);
       showToast("Passkey added");
     } catch (caught) {
@@ -158,18 +158,15 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
     }
   };
 
-  const removePasskey = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!passkeyToRemove || !passkeyPassword) return;
+  const removePasskey = async (id: string) => {
     setPasskeyBusy(true);
-    setPasskeyError(null);
+    setError(null);
     try {
-      await api.deletePasskey(passkeyToRemove, passkeyPassword);
-      setPasskeys((current) => current.filter((passkey) => passkey.id !== passkeyToRemove));
+      await runSensitive(() => api.deletePasskey(id));
+      setPasskeys((current) => current.filter((passkey) => passkey.id !== id));
       showToast("Passkey removed");
-      passkeyDialog.close();
     } catch (caught) {
-      setPasskeyError(errorMessage(caught));
+      setError(errorMessage(caught));
     } finally {
       setPasskeyBusy(false);
     }
@@ -184,11 +181,27 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
     setChangingPassword(true);
     setError(null);
     try {
-      await api.changePassword(currentPassword, newPassword);
-      setCurrentPassword("");
+      await runSensitive(() => api.changePassword(newPassword));
+      setHasPassword(true);
       setNewPassword("");
       setConfirmPassword("");
       showToast("Password changed. Other sessions were signed out");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const removePassword = async () => {
+    setChangingPassword(true);
+    setError(null);
+    try {
+      await runSensitive(() => api.removePassword());
+      setHasPassword(false);
+      setNewPassword("");
+      setConfirmPassword("");
+      showToast("Password removed");
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -203,9 +216,7 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
     >
       <div className="settings-heading">
         <h2 id="account-heading">Account security</h2>
-        <p>
-          Your password is the recovery method. Passkeys are optional and can sign you in faster.
-        </p>
+        <p>Manage the credentials you use to sign in.</p>
       </div>
       <div className="account-setting-block">
         <div className="account-setting-heading">
@@ -308,7 +319,7 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
                       type="button"
                       aria-label={`Remove ${passkey.name}`}
                       disabled={passkeyBusy || renamingPasskey}
-                      onClick={() => openRemovePasskeyDialog(passkey.id)}
+                      onClick={() => void removePasskey(passkey.id)}
                     >
                       <Trash2 aria-hidden="true" size={15} />
                     </button>
@@ -324,22 +335,10 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
         onSubmit={(event) => void changePassword(event)}
       >
         <div>
-          <strong>Change password</strong>
-          <p>Use at least 15 characters. Changing it signs out every other browser.</p>
+          <strong>{hasPassword ? "Change password" : "Add password"}</strong>
+          <p>Use at least 15 characters.</p>
         </div>
         <div className="password-change-fields">
-          <label>
-            <span>Current password</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={currentPassword}
-              maxLength={128}
-              required
-              disabled={changingPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-            />
-          </label>
           <label>
             <span>New password</span>
             <input
@@ -370,17 +369,24 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
             className="secondary-button"
             type="submit"
             disabled={
-              changingPassword ||
-              !currentPassword ||
-              newPassword.length < 15 ||
-              newPassword !== confirmPassword
+              changingPassword || newPassword.length < 15 || newPassword !== confirmPassword
             }
           >
             {changingPassword ? (
               <LoaderCircle className="spin" aria-hidden="true" size={15} />
             ) : null}
-            Change password
+            {hasPassword ? "Change password" : "Add password"}
           </button>
+          {hasPassword ? (
+            <button
+              className="danger-button"
+              type="button"
+              disabled={changingPassword}
+              onClick={() => void removePassword()}
+            >
+              Remove password
+            </button>
+          ) : null}
         </div>
       </form>
       {error ? (
@@ -389,96 +395,6 @@ function AccountSettingsSection({ showToast }: { showToast: (message: string) =>
           <span>{error}</span>
         </div>
       ) : null}
-      <dialog
-        ref={passkeyDialog.dialogRef}
-        className="management-dialog passkey-dialog"
-        aria-labelledby="passkey-dialog-title"
-        data-state={passkeyDialog.closing ? "closing" : "open"}
-        inert={passkeyDialog.closing}
-        onClose={passkeyDialog.handleClose}
-        onCancel={(event) => {
-          if (passkeyBusy) {
-            event.preventDefault();
-            return;
-          }
-          passkeyDialog.handleCancel(event);
-        }}
-      >
-        <form className="passkey-dialog-form" onSubmit={(event) => void removePasskey(event)}>
-          <header className="management-dialog-heading">
-            <span className="dialog-icon" aria-hidden="true">
-              <KeyRound size={16} />
-            </span>
-            <div>
-              <h2 id="passkey-dialog-title">Remove passkey</h2>
-              <p>Confirm this security change with your password.</p>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              disabled={passkeyBusy}
-              onClick={closePasskeyDialog}
-              aria-label="Close passkey confirmation"
-            >
-              <X aria-hidden="true" size={18} />
-            </button>
-          </header>
-
-          <div className="management-dialog-body passkey-dialog-body">
-            <label className="passkey-dialog-field" htmlFor="passkey-password">
-              <span>Current password</span>
-              <input
-                ref={passkeyPasswordRef}
-                id="passkey-password"
-                type="password"
-                autoComplete="current-password"
-                value={passkeyPassword}
-                maxLength={128}
-                required
-                disabled={passkeyBusy}
-                aria-describedby="passkey-password-help"
-                onChange={(event) => {
-                  setPasskeyPassword(event.target.value);
-                  setPasskeyError(null);
-                }}
-              />
-              <p id="passkey-password-help">
-                Your password will continue to work after this passkey is removed.
-              </p>
-            </label>
-            {passkeyError ? (
-              <div className="management-dialog-error" role="alert">
-                <AlertTriangle aria-hidden="true" size={16} />
-                <span>{passkeyError}</span>
-              </div>
-            ) : null}
-          </div>
-
-          <footer className="management-dialog-footer">
-            <span />
-            <div>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={passkeyBusy}
-                onClick={closePasskeyDialog}
-              >
-                Cancel
-              </button>
-              <button
-                className="danger-button"
-                type="submit"
-                disabled={passkeyBusy || !passkeyPassword}
-              >
-                {passkeyBusy ? (
-                  <LoaderCircle className="spin" aria-hidden="true" size={15} />
-                ) : null}
-                Remove passkey
-              </button>
-            </div>
-          </footer>
-        </form>
-      </dialog>
     </section>
   );
 }
@@ -489,12 +405,14 @@ function AiSettingsSection({
   onSettings,
   onAiSettings,
   showToast,
+  runSensitive,
 }: {
   settings: AppSettings;
   aiSettings: AiSettings;
   onSettings: (settings: AppSettings) => void;
   onAiSettings: (settings: AiSettings) => void;
   showToast: (message: string) => void;
+  runSensitive: SensitiveAction;
 }) {
   const initialFeature = aiSettings.features.articleSummary;
   const initialProvider = initialFeature?.provider ?? "gemini";
@@ -605,7 +523,7 @@ function AiSettingsSection({
     setSavingKey(true);
     setError(null);
     try {
-      const keySettings = await api.saveAiProviderKey(providerId, nextKey);
+      const keySettings = await runSensitive(() => api.saveAiProviderKey(providerId, nextKey));
       try {
         const updated = await api.updateAiFeature("article_summary", {
           provider: providerId,
@@ -637,7 +555,7 @@ function AiSettingsSection({
     setRemovingKey(true);
     setError(null);
     try {
-      onAiSettings(await api.deleteAiProviderKey(providerId));
+      onAiSettings(await runSensitive(() => api.deleteAiProviderKey(providerId)));
       setApiKey("");
       setShowKey(false);
       showToast(`${provider.label} API key removed`);
@@ -1250,10 +1168,90 @@ function SettingsPage({
 }) {
   const [saving, setSaving] = useState(false);
   const [translationLanguage, setTranslationLanguage] = useState(settings.translationLanguage);
+  const [pendingSensitive, setPendingSensitive] = useState<PendingSensitiveAction | null>(null);
+  const [stepUpPassword, setStepUpPassword] = useState("");
+  const [stepUpBusy, setStepUpBusy] = useState(false);
+  const [stepUpError, setStepUpError] = useState<string | null>(null);
+  const [stepUpHasPassword, setStepUpHasPassword] = useState(false);
+  const [stepUpHasPasskey, setStepUpHasPasskey] = useState(false);
+  const stepUpDialogRef = useRef<HTMLDialogElement>(null);
+  const stepUpPasswordRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTranslationLanguage(settings.translationLanguage);
   }, [settings.translationLanguage]);
+
+  const runSensitive = useCallback<SensitiveAction>(async <T,>(action: () => Promise<T>) => {
+    try {
+      return await action();
+    } catch (caught) {
+      if (
+        !(caught instanceof ApiError) ||
+        caught.code !== "RECENT_AUTH_REQUIRED" ||
+        !caught.operationId
+      )
+        throw caught;
+      const credentials = await api.passkeys();
+      setStepUpHasPassword(credentials.hasPassword);
+      setStepUpHasPasskey(credentials.passkeys.length > 0);
+      setStepUpPassword("");
+      setStepUpError(null);
+      return await new Promise<T>((resolve, reject) => {
+        setPendingSensitive({
+          operationId: caught.operationId as string,
+          action,
+          resolve: resolve as (value: unknown) => void,
+          reject,
+        });
+        window.requestAnimationFrame(() => {
+          stepUpDialogRef.current?.showModal();
+          stepUpPasswordRef.current?.focus();
+        });
+      });
+    }
+  }, []);
+
+  const finishStepUp = async (authenticate: () => Promise<void>) => {
+    const pending = pendingSensitive;
+    if (!pending) return;
+    setStepUpBusy(true);
+    setStepUpError(null);
+    try {
+      await authenticate();
+      const result = await pending.action();
+      pending.resolve(result);
+      setPendingSensitive(null);
+      setStepUpPassword("");
+      stepUpDialogRef.current?.close();
+    } catch (caught) {
+      setStepUpError(errorMessage(caught));
+    } finally {
+      setStepUpBusy(false);
+    }
+  };
+
+  const authenticateWithPassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!pendingSensitive || !stepUpPassword) return;
+    await finishStepUp(() => api.stepUpPassword(pendingSensitive.operationId, stepUpPassword));
+  };
+
+  const authenticateWithPasskey = async () => {
+    if (!pendingSensitive) return;
+    await finishStepUp(async () => {
+      const { ceremonyId, options } = await api.stepUpPasskeyOptions(pendingSensitive.operationId);
+      const response = await startAuthentication({ optionsJSON: options });
+      await api.stepUpPasskey(ceremonyId, response);
+    });
+  };
+
+  const cancelStepUp = () => {
+    if (stepUpBusy) return;
+    pendingSensitive?.reject(new DOMException("Authentication was cancelled.", "AbortError"));
+    setPendingSensitive(null);
+    setStepUpPassword("");
+    stepUpDialogRef.current?.close();
+  };
 
   const saveSettings = async (change: Partial<AppSettings>) => {
     setSaving(true);
@@ -1282,7 +1280,9 @@ function SettingsPage({
           ) : undefined
         }
       />
-      {!isDesktopApp() ? <AccountSettingsSection showToast={showToast} /> : null}
+      {!isDesktopApp() ? (
+        <AccountSettingsSection showToast={showToast} runSensitive={runSensitive} />
+      ) : null}
       <section className="settings-section" aria-labelledby="appearance-heading">
         <div className="settings-heading">
           <h2 id="appearance-heading">Appearance</h2>
@@ -1433,6 +1433,7 @@ function SettingsPage({
         onSettings={onSettings}
         onAiSettings={onAiSettings}
         showToast={showToast}
+        runSensitive={runSensitive}
       />
 
       <section className="settings-section" aria-labelledby="refresh-heading">
@@ -1523,6 +1524,101 @@ function SettingsPage({
           </div>
         </div>
       </section>
+      <dialog
+        ref={stepUpDialogRef}
+        className="management-dialog passkey-dialog"
+        aria-labelledby="step-up-dialog-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          cancelStepUp();
+        }}
+      >
+        <form
+          className="passkey-dialog-form"
+          onSubmit={(event) => void authenticateWithPassword(event)}
+        >
+          <header className="management-dialog-heading">
+            <span className="dialog-icon" aria-hidden="true">
+              <KeyRound size={16} />
+            </span>
+            <div>
+              <h2 id="step-up-dialog-title">Authenticate to continue</h2>
+            </div>
+            <button
+              className="icon-button"
+              type="button"
+              disabled={stepUpBusy}
+              onClick={cancelStepUp}
+              aria-label="Close authentication"
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          </header>
+          <div className="management-dialog-body passkey-dialog-body">
+            {stepUpHasPassword ? (
+              <label className="passkey-dialog-field" htmlFor="step-up-password">
+                <span>Password</span>
+                <input
+                  ref={stepUpPasswordRef}
+                  id="step-up-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={stepUpPassword}
+                  maxLength={128}
+                  required
+                  disabled={stepUpBusy}
+                  onChange={(event) => {
+                    setStepUpPassword(event.target.value);
+                    setStepUpError(null);
+                  }}
+                />
+              </label>
+            ) : null}
+            {stepUpHasPasskey ? (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={stepUpBusy}
+                onClick={() => void authenticateWithPasskey()}
+              >
+                <KeyRound aria-hidden="true" size={15} />
+                Use a passkey
+              </button>
+            ) : null}
+            {stepUpError ? (
+              <div className="management-dialog-error" role="alert">
+                <AlertTriangle aria-hidden="true" size={16} />
+                <span>{stepUpError}</span>
+              </div>
+            ) : null}
+          </div>
+          <footer className="management-dialog-footer">
+            <span />
+            <div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={stepUpBusy}
+                onClick={cancelStepUp}
+              >
+                Cancel
+              </button>
+              {stepUpHasPassword ? (
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={stepUpBusy || !stepUpPassword}
+                >
+                  {stepUpBusy ? (
+                    <LoaderCircle className="spin" aria-hidden="true" size={15} />
+                  ) : null}
+                  Continue
+                </button>
+              ) : null}
+            </div>
+          </footer>
+        </form>
+      </dialog>
     </div>
   );
 }

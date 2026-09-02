@@ -103,23 +103,50 @@ export function createApiClient(runtime: ApiRuntime) {
       return body.user;
     },
 
+    passkeySignupOptions: (username: string) =>
+      request<{
+        registrationId: string;
+        options: PublicKeyCredentialCreationOptionsJSON;
+      }>("passkeySignupOptions", { username }, "/api/auth/register/passkey/options", {
+        method: "POST",
+        body: JSON.stringify({ username }),
+      }),
+
+    async completePasskeySignup(
+      registrationId: string,
+      response: RegistrationResponseJSON,
+    ): Promise<SessionUser> {
+      const body = await request<{ user: SessionUser }>(
+        "completePasskeySignup",
+        { registrationId, response },
+        "/api/auth/register/passkey",
+        {
+          method: "POST",
+          body: JSON.stringify({ registrationId, response }),
+        },
+      );
+      return body.user;
+    },
+
     logout: () => request<void>("logout", undefined, "/api/auth/logout", { method: "POST" }),
 
     authConfig: () => request<AuthConfig>("authConfig", undefined, "/api/auth/config"),
 
-    changePassword: (currentPassword: string, newPassword: string) =>
-      request<void>("changePassword", { currentPassword, newPassword }, "/api/auth/password", {
-        method: "POST",
-        body: JSON.stringify({ currentPassword, newPassword }),
+    changePassword: (password: string) =>
+      request<void>("changePassword", { password }, "/api/auth/password", {
+        method: "PUT",
+        body: JSON.stringify({ password }),
       }),
 
-    async passkeys(): Promise<PasskeySummary[]> {
-      const body = await request<{ passkeys: PasskeySummary[] }>(
+    removePassword: () =>
+      request<void>("removePassword", undefined, "/api/auth/password", { method: "DELETE" }),
+
+    async passkeys(): Promise<{ passkeys: PasskeySummary[]; hasPassword: boolean }> {
+      return request<{ passkeys: PasskeySummary[]; hasPassword: boolean }>(
         "passkeys",
         undefined,
         "/api/auth/passkeys",
       );
-      return body.passkeys;
     },
 
     passkeyRegistrationOptions: () =>
@@ -149,13 +176,31 @@ export function createApiClient(runtime: ApiRuntime) {
         { method: "PATCH", body: JSON.stringify({ name }) },
       ),
 
-    deletePasskey: (id: string, password: string) =>
-      request<void>(
-        "deletePasskey",
-        { id, password },
-        `/api/auth/passkeys/${encodeURIComponent(id)}`,
-        { method: "DELETE", body: JSON.stringify({ password }) },
-      ),
+    deletePasskey: (id: string) =>
+      request<void>("deletePasskey", { id }, `/api/auth/passkeys/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    stepUpPassword: (operationId: string, password: string) =>
+      request<void>("stepUpPassword", { operationId, password }, "/api/auth/step-up/password", {
+        method: "POST",
+        body: JSON.stringify({ operationId, password }),
+      }),
+
+    stepUpPasskeyOptions: (operationId: string) =>
+      request<{
+        ceremonyId: string;
+        options: PublicKeyCredentialRequestOptionsJSON;
+      }>("stepUpPasskeyOptions", { operationId }, "/api/auth/step-up/passkey/options", {
+        method: "POST",
+        body: JSON.stringify({ operationId }),
+      }),
+
+    stepUpPasskey: (ceremonyId: string, response: AuthenticationResponseJSON) =>
+      request<void>("stepUpPasskey", { ceremonyId, response }, "/api/auth/step-up/passkey", {
+        method: "POST",
+        body: JSON.stringify({ ceremonyId, response }),
+      }),
 
     passkeyAuthenticationOptions: () =>
       request<{

@@ -140,7 +140,7 @@ describe("authenticated web-feed API", () => {
 
     const database = new AppDatabase(":memory:");
     cleanups.push(() => database.close());
-    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const authService = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const extractionQueue = new ExtractionQueue(database.extractions, 1, 4_000);
     cleanups.push(() => extractionQueue.stop());
     const webFeedService = new WebFeedService({

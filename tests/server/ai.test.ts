@@ -33,7 +33,7 @@ async function databaseWithUsers(): Promise<{
 }> {
   const database = new AppDatabase(":memory:");
   cleanups.push(() => database.close());
-  const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+  const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
   const reader = (await auth.register("reader", "reader-password"))?.user;
   const partner = (await auth.register("partner", "partner-password"))?.user;
   if (!reader || !partner) throw new Error("Test accounts could not be created");

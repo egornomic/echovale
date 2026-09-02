@@ -12,7 +12,7 @@ afterEach(async () => {
 describe("shared feed sources", () => {
   it("fetches and stores a public feed once while keeping delivery state account-specific", async () => {
     const database = new AppDatabase(":memory:");
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const firstUser = (await auth.register("first-reader", "reader-password"))?.user;
     const secondUser = (await auth.register("second-reader", "reader-password"))?.user;
     if (!firstUser || !secondUser) throw new Error("Test accounts were not created");
@@ -98,7 +98,7 @@ describe("shared feed sources", () => {
 
   it("initializes a later subscription from the shared cache without backfilling old entries", async () => {
     const database = new AppDatabase(":memory:");
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const firstUser = (await auth.register("cache-owner", "reader-password"))?.user;
     const secondUser = (await auth.register("cache-reader", "reader-password"))?.user;
     if (!firstUser || !secondUser) throw new Error("Test accounts were not created");
@@ -142,7 +142,7 @@ describe("shared feed sources", () => {
 
   it("shares web feeds only when their complete page selections match", async () => {
     const database = new AppDatabase(":memory:");
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const firstUser = (await auth.register("web-owner", "reader-password"))?.user;
     const secondUser = (await auth.register("web-reader", "reader-password"))?.user;
     if (!firstUser || !secondUser) throw new Error("Test accounts were not created");

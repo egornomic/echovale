@@ -551,7 +551,7 @@ describe("feed refresh and full-text extraction", () => {
   it("skips exact URL or title duplicates across feeds within the configured window", async () => {
     const database = await temporaryDatabase();
     cleanups.push(() => database.close());
-    const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const authService = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const reader = (await authService.register("reader", "reader-password"))?.user;
     const partner = (await authService.register("partner", "partner-password"))?.user;
     if (!reader || !partner) throw new Error("Expected test accounts");

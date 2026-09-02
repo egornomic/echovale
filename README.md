@@ -89,7 +89,16 @@ Compose reads these values from the shell or a project-level `.env` file:
 | `FEEDFOLD_BASE_PATH` | `/` | Browser-facing path where feedfold is mounted. Set this at build time, including the leading and trailing slash, when a reverse proxy publishes feedfold below a path such as `/feedfold/`. |
 | `FEEDFOLD_DEPLOYMENT_MODE` | `private` | Use `private` for unrestricted desktop and self-hosted operation, or `public` for public-service inactivity, refresh, and subscription limits. |
 | `FEEDFOLD_PUBLIC_ORIGIN` | none | Exact external HTTPS origin used for secure cookies, passkeys, and browser-origin validation. |
-| `FEEDFOLD_ALLOW_PUBLIC_REGISTRATION` | `0` | Set to `1` to allow additional accounts to register. |
+| `FEEDFOLD_MAX_ACCOUNTS` | none | Public-mode account cap. `0`, a missing value, or an invalid value disables registration. |
+| `FEEDFOLD_RECENT_AUTH_SECONDS` | `300` | Time after authentication during which credential changes do not require another check. |
+| `FEEDFOLD_REGISTRATION_IP_LIMIT` | `10` | Registration attempts allowed per source during the registration cooldown. |
+| `FEEDFOLD_REGISTRATION_GLOBAL_LIMIT` | `100` | Registration attempts allowed across the deployment during the registration cooldown. |
+| `FEEDFOLD_REGISTRATION_COOLDOWN_MINUTES` | `60` | Registration cooldown window. |
+| `FEEDFOLD_LOGIN_IP_LIMIT` | `50` | Failed sign-in attempts allowed per source during the login cooldown. |
+| `FEEDFOLD_LOGIN_ACCOUNT_LIMIT` | `10` | Failed sign-in attempts allowed per account name during the login cooldown. |
+| `FEEDFOLD_LOGIN_COOLDOWN_MINUTES` | `15` | Login cooldown window. |
+| `FEEDFOLD_STEP_UP_LIMIT` | `10` | Failed recent-authentication attempts allowed per session during its cooldown. |
+| `FEEDFOLD_STEP_UP_COOLDOWN_MINUTES` | `15` | Recent-authentication cooldown window. |
 | `POLL_INTERVAL_MINUTES` | `20` | Starting interval for new published feeds, rounded up to 5, 10, 20, 30, or 60 minutes. |
 | `FEED_FETCH_TIMEOUT_MS` | `15000` | Feed request timeout, in milliseconds. |
 | `WEB_FEED_LOAD_TIMEOUT_MS` | `30000` | Maximum normal load time for a JavaScript-rendered web feed, in milliseconds. |

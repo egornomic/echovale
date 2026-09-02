@@ -4,12 +4,16 @@ import {
   DEFAULT_ARTICLE_TRANSLATION_PROMPT,
   DEFAULT_CUSTOM_PROMPTS,
 } from "../../../shared/ai-prompts.js";
-import type { SessionUser } from "../../../shared/types.js";
 
 const LEGACY_OWNER = "__legacy_owner__";
 
-export interface UserWithPassword extends SessionUser {
+export interface StoredUser {
+  id: number;
+  publicId: string;
+  username: string;
   passwordHash: string;
+  hasPassword: boolean;
+  passwordEnrolledAt: string | null;
   webauthnUserId: Buffer;
 }
 
@@ -18,6 +22,13 @@ export interface StoredSession {
   createdAt: string;
   lastSeenAt: string;
   expiresAt: string;
+  recentAuthAt: string;
+}
+
+export interface AuthenticatedSession {
+  tokenHash: string;
+  recentAuthAt: string | null;
+  user: StoredUser;
 }
 
 export interface StoredPasskey {
@@ -37,15 +48,52 @@ export interface StoredPasskey {
 export interface StoredAuthChallenge {
   idHash: string;
   challenge: string;
-  kind: "passkey-registration" | "passkey-authentication";
+  kind: "passkey-registration" | "passkey-authentication" | "step-up-authentication";
   userId: number | null;
+  sessionHash: string | null;
+  operationIdHash: string | null;
   origin: string;
   rpId: string;
   expiresAt: string;
 }
 
+export interface StoredPendingRegistration {
+  idHash: string;
+  username: string;
+  webauthnUserId: Buffer;
+  challenge: string;
+  origin: string;
+  rpId: string;
+  expiresAt: string;
+}
+
+export interface StoredAuthOperation {
+  idHash: string;
+  sessionHash: string;
+  userId: number;
+  startedAt: string;
+  passwordEnrolledAt: string | null;
+  passkeyIds: string[];
+  expiresAt: string;
+}
+
+function booleanRow<T extends { hasPassword: number }>(
+  row: T,
+): Omit<T, "hasPassword"> & {
+  hasPassword: boolean;
+} {
+  return { ...row, hasPassword: row.hasPassword === 1 };
+}
+
 export class AuthRepository {
   constructor(private readonly sqlite: Sqlite.Database) {}
+
+  authHashSecret(): Buffer {
+    return this.sqlite
+      .prepare("SELECT value FROM auth_secrets WHERE name = 'limiter-hmac'")
+      .pluck()
+      .get() as Buffer;
+  }
 
   deleteExpiredSessions(at: string, idleCutoff: string): void {
     this.sqlite
@@ -53,92 +101,242 @@ export class AuthRepository {
       .run(at, idleCutoff);
   }
 
-  registrationAvailable(allowAdditionalUsers: boolean): boolean {
-    if (allowAdditionalUsers) return true;
-    const row = this.sqlite
-      .prepare("SELECT COUNT(*) AS count FROM users WHERE enabled = 1")
-      .get() as { count: number };
-    return row.count === 0;
+  registrationAvailable(maxAccounts: number): boolean {
+    if (maxAccounts <= 0) return false;
+    const count = this.sqlite
+      .prepare("SELECT COUNT(*) FROM users WHERE enabled = 1")
+      .pluck()
+      .get() as number;
+    return count < maxAccounts;
+  }
+
+  private createDefaultSettings(userId: number, pollIntervalMinutes: number): void {
+    this.sqlite
+      .prepare(
+        `INSERT INTO settings (
+           user_id, poll_interval_minutes, single_key_shortcuts, mark_read_on_scroll,
+           show_youtube_descriptions, translation_language, summary_prompt,
+           translation_prompt, custom_prompts_json
+         ) VALUES (?, ?, 1, 1, 0, 'English', ?, ?, ?)`,
+      )
+      .run(
+        userId,
+        pollIntervalMinutes,
+        DEFAULT_ARTICLE_SUMMARY_PROMPT,
+        DEFAULT_ARTICLE_TRANSLATION_PROMPT,
+        JSON.stringify(DEFAULT_CUSTOM_PROMPTS),
+      );
+  }
+
+  private createUser(
+    username: string,
+    passwordHash: string,
+    hasPassword: boolean,
+    passwordEnrolledAt: string | null,
+    publicId: string,
+    webauthnUserId: Buffer,
+    pollIntervalMinutes: number,
+    at: string,
+  ): StoredUser {
+    const legacy = this.sqlite
+      .prepare("SELECT id FROM users WHERE username = ? COLLATE NOCASE")
+      .get(LEGACY_OWNER) as { id: number } | undefined;
+    let id: number;
+    if (legacy) {
+      this.sqlite
+        .prepare(
+          `UPDATE users
+           SET username = ?, password_hash = ?, has_password = ?, password_enrolled_at = ?,
+               public_id = ?, webauthn_user_id = ?, enabled = 1, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(
+          username,
+          passwordHash,
+          hasPassword ? 1 : 0,
+          passwordEnrolledAt,
+          publicId,
+          webauthnUserId,
+          at,
+          legacy.id,
+        );
+      id = legacy.id;
+    } else {
+      const result = this.sqlite
+        .prepare(
+          `INSERT INTO users (
+             username, password_hash, has_password, password_enrolled_at, public_id,
+             webauthn_user_id, enabled, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        )
+        .run(
+          username,
+          passwordHash,
+          hasPassword ? 1 : 0,
+          passwordEnrolledAt,
+          publicId,
+          webauthnUserId,
+          at,
+          at,
+        );
+      id = Number(result.lastInsertRowid);
+      this.createDefaultSettings(id, pollIntervalMinutes);
+    }
+    return {
+      id,
+      publicId,
+      username,
+      passwordHash,
+      hasPassword,
+      passwordEnrolledAt,
+      webauthnUserId,
+    };
   }
 
   registerUserWithSession(
     username: string,
     passwordHash: string,
+    publicId: string,
     webauthnUserId: Buffer,
     defaultPollIntervalMinutes: number,
     session: StoredSession,
-    allowAdditionalUsers: boolean,
-  ): SessionUser | null {
-    return this.sqlite.transaction(() => {
-      if (!this.registrationAvailable(allowAdditionalUsers)) return null;
-      const existing = this.sqlite
-        .prepare("SELECT id FROM users WHERE username = ? COLLATE NOCASE")
-        .get(username);
-      if (existing) return null;
-
-      const legacy = this.sqlite
-        .prepare("SELECT id FROM users WHERE username = ? COLLATE NOCASE")
-        .get(LEGACY_OWNER) as { id: number } | undefined;
-      let user: SessionUser;
-      if (legacy) {
-        this.sqlite
-          .prepare(
-            `UPDATE users
-             SET username = ?, password_hash = ?, webauthn_user_id = ?, enabled = 1, updated_at = ?
-             WHERE id = ?`,
-          )
-          .run(username, passwordHash, webauthnUserId, session.createdAt, legacy.id);
-        user = { id: legacy.id, username };
-      } else {
-        const result = this.sqlite
-          .prepare(
-            `INSERT INTO users (
-               username, password_hash, webauthn_user_id, enabled, created_at, updated_at
-             ) VALUES (?, ?, ?, 1, ?, ?)`,
-          )
-          .run(username, passwordHash, webauthnUserId, session.createdAt, session.createdAt);
-        const userId = Number(result.lastInsertRowid);
-        this.sqlite
-          .prepare(
-            `INSERT INTO settings (
-               user_id, poll_interval_minutes, single_key_shortcuts, mark_read_on_scroll,
-               show_youtube_descriptions, translation_language, summary_prompt,
-               translation_prompt, custom_prompts_json
-             ) VALUES (?, ?, 1, 1, 0, 'English', ?, ?, ?)`,
-          )
-          .run(
-            userId,
-            defaultPollIntervalMinutes,
-            DEFAULT_ARTICLE_SUMMARY_PROMPT,
-            DEFAULT_ARTICLE_TRANSLATION_PROMPT,
-            JSON.stringify(DEFAULT_CUSTOM_PROMPTS),
-          );
-        user = { id: userId, username };
-      }
+    maxAccounts: number,
+  ): StoredUser | null {
+    const register = this.sqlite.transaction(() => {
+      if (!this.registrationAvailable(maxAccounts)) return null;
+      if (
+        this.sqlite.prepare("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE").get(username)
+      )
+        return null;
+      const user = this.createUser(
+        username,
+        passwordHash,
+        true,
+        session.createdAt,
+        publicId,
+        webauthnUserId,
+        defaultPollIntervalMinutes,
+        session.createdAt,
+      );
       this.insertSession(user.id, session);
       return user;
-    })();
+    });
+    return register.immediate();
   }
 
-  findEnabledUser(username: string): UserWithPassword | null {
+  storePendingRegistration(pending: StoredPendingRegistration, maxAccounts: number): boolean {
+    const store = this.sqlite.transaction(() => {
+      this.sqlite
+        .prepare("DELETE FROM pending_registrations WHERE expires_at <= ?")
+        .run(new Date().toISOString());
+      if (!this.registrationAvailable(maxAccounts)) return false;
+      if (
+        this.sqlite
+          .prepare("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE")
+          .get(pending.username) ||
+        this.sqlite
+          .prepare("SELECT 1 FROM pending_registrations WHERE username = ? COLLATE NOCASE")
+          .get(pending.username)
+      )
+        return false;
+      this.sqlite
+        .prepare(
+          `INSERT INTO pending_registrations (
+             id_hash, username, webauthn_user_id, challenge, origin, rp_id, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          pending.idHash,
+          pending.username,
+          pending.webauthnUserId,
+          pending.challenge,
+          pending.origin,
+          pending.rpId,
+          pending.expiresAt,
+        );
+      return true;
+    });
+    return store.immediate();
+  }
+
+  pendingRegistration(idHash: string, at: string): StoredPendingRegistration | null {
+    return (
+      (this.sqlite
+        .prepare(
+          `SELECT id_hash AS idHash, username, webauthn_user_id AS webauthnUserId,
+                  challenge, origin, rp_id AS rpId, expires_at AS expiresAt
+           FROM pending_registrations WHERE id_hash = ? AND expires_at > ?`,
+        )
+        .get(idHash, at) as StoredPendingRegistration | undefined) ?? null
+    );
+  }
+
+  completePendingRegistration(
+    idHash: string,
+    passwordHash: string,
+    publicId: string,
+    passkey: Omit<StoredPasskey, "userId" | "username">,
+    defaultPollIntervalMinutes: number,
+    session: StoredSession,
+    maxAccounts: number,
+    at: string,
+  ): StoredUser | null {
+    const complete = this.sqlite.transaction(() => {
+      const pending = this.pendingRegistration(idHash, at);
+      this.sqlite.prepare("DELETE FROM pending_registrations WHERE id_hash = ?").run(idHash);
+      if (!pending || !this.registrationAvailable(maxAccounts)) return null;
+      if (
+        this.sqlite
+          .prepare("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE")
+          .get(pending.username) ||
+        this.sqlite.prepare("SELECT 1 FROM passkeys WHERE id = ?").get(passkey.id)
+      )
+        return null;
+      const user = this.createUser(
+        pending.username,
+        passwordHash,
+        false,
+        null,
+        publicId,
+        pending.webauthnUserId,
+        defaultPollIntervalMinutes,
+        at,
+      );
+      this.insertPasskey({ ...passkey, userId: user.id, username: user.username });
+      this.insertSession(user.id, session);
+      return user;
+    });
+    return complete.immediate();
+  }
+
+  findEnabledUser(username: string): StoredUser | null {
     const row = this.sqlite
       .prepare(
-        `SELECT id, username, password_hash AS passwordHash,
+        `SELECT id, public_id AS publicId, username, password_hash AS passwordHash,
+                has_password AS hasPassword, password_enrolled_at AS passwordEnrolledAt,
                 webauthn_user_id AS webauthnUserId
          FROM users WHERE username = ? COLLATE NOCASE AND enabled = 1`,
       )
-      .get(username) as UserWithPassword | undefined;
-    return row ?? null;
+      .get(username) as (Omit<StoredUser, "hasPassword"> & { hasPassword: number }) | undefined;
+    return row ? booleanRow(row) : null;
   }
 
   insertSession(userId: number, session: StoredSession): void {
     this.sqlite.transaction(() => {
       this.sqlite
         .prepare(
-          `INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO sessions (
+             token_hash, user_id, created_at, last_seen_at, expires_at, recent_auth_at
+           ) VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(session.tokenHash, userId, session.createdAt, session.lastSeenAt, session.expiresAt);
+        .run(
+          session.tokenHash,
+          userId,
+          session.createdAt,
+          session.lastSeenAt,
+          session.expiresAt,
+          session.recentAuthAt,
+        );
       this.sqlite
         .prepare("UPDATE users SET last_active_at = ? WHERE id = ?")
         .run(session.lastSeenAt, userId);
@@ -153,31 +351,49 @@ export class AuthRepository {
     );
   }
 
-  userForTokenHash(
+  sessionForTokenHash(
     hash: string,
     at: string,
     idleCutoff: string,
     touchBefore: string,
-  ): SessionUser | null {
+  ): AuthenticatedSession | null {
     const row = this.sqlite
       .prepare(
-        `SELECT users.id, users.username
-         FROM sessions
-         JOIN users ON users.id = sessions.user_id
+        `SELECT sessions.token_hash AS tokenHash, sessions.recent_auth_at AS recentAuthAt,
+                users.id, users.public_id AS publicId, users.username,
+                users.password_hash AS passwordHash, users.has_password AS hasPassword,
+                users.password_enrolled_at AS passwordEnrolledAt,
+                users.webauthn_user_id AS webauthnUserId
+         FROM sessions JOIN users ON users.id = sessions.user_id
          WHERE sessions.token_hash = ? AND sessions.expires_at > ?
            AND sessions.last_seen_at > ? AND users.enabled = 1`,
       )
-      .get(hash, at, idleCutoff) as SessionUser | undefined;
+      .get(hash, at, idleCutoff) as
+      | (Omit<StoredUser, "hasPassword"> & {
+          tokenHash: string;
+          recentAuthAt: string | null;
+          hasPassword: number;
+        })
+      | undefined;
     if (!row) return null;
+    const { tokenHash, recentAuthAt, ...user } = row;
     this.sqlite
       .prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ? AND last_seen_at <= ?")
       .run(at, hash, touchBefore);
-    this.touchUserActivity(row.id, at, touchBefore);
-    return row;
+    this.touchUserActivity(user.id, at, touchBefore);
+    return { tokenHash, recentAuthAt, user: booleanRow(user) };
   }
 
   deleteSession(hash: string): void {
     this.sqlite.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hash);
+  }
+
+  markSessionRecentlyAuthenticated(hash: string, at: string): boolean {
+    return (
+      this.sqlite
+        .prepare("UPDATE sessions SET recent_auth_at = ? WHERE token_hash = ?")
+        .run(at, hash).changes > 0
+    );
   }
 
   updatePassword(
@@ -188,12 +404,24 @@ export class AuthRepository {
   ): void {
     this.sqlite.transaction(() => {
       this.sqlite
-        .prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
-        .run(passwordHash, at, userId);
+        .prepare(
+          `UPDATE users SET password_hash = ?, has_password = 1,
+             password_enrolled_at = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(passwordHash, at, at, userId);
       this.sqlite
         .prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?")
         .run(userId, currentSessionHash);
     })();
+  }
+
+  removePassword(userId: number, replacementHash: string, at: string): void {
+    this.sqlite
+      .prepare(
+        `UPDATE users SET password_hash = ?, has_password = 0,
+           password_enrolled_at = NULL, updated_at = ? WHERE id = ?`,
+      )
+      .run(replacementHash, at, userId);
   }
 
   upgradePasswordHash(userId: number, passwordHash: string, at: string): void {
@@ -302,15 +530,16 @@ export class AuthRepository {
     );
   }
 
-  userWithPasskeys(userId: number): UserWithPassword | null {
+  userWithPasskeys(userId: number): StoredUser | null {
     const row = this.sqlite
       .prepare(
-        `SELECT id, username, password_hash AS passwordHash,
+        `SELECT id, public_id AS publicId, username, password_hash AS passwordHash,
+                has_password AS hasPassword, password_enrolled_at AS passwordEnrolledAt,
                 webauthn_user_id AS webauthnUserId
          FROM users WHERE id = ? AND enabled = 1`,
       )
-      .get(userId) as UserWithPassword | undefined;
-    return row ?? null;
+      .get(userId) as (Omit<StoredUser, "hasPassword"> & { hasPassword: number }) | undefined;
+    return row ? booleanRow(row) : null;
   }
 
   storeChallenge(challenge: StoredAuthChallenge): void {
@@ -321,14 +550,17 @@ export class AuthRepository {
       this.sqlite
         .prepare(
           `INSERT INTO auth_challenges (
-             id_hash, challenge, kind, user_id, origin, rp_id, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             id_hash, challenge, kind, user_id, session_hash, operation_id_hash,
+             origin, rp_id, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           challenge.idHash,
           challenge.challenge,
           challenge.kind,
           challenge.userId,
+          challenge.sessionHash,
+          challenge.operationIdHash,
           challenge.origin,
           challenge.rpId,
           challenge.expiresAt,
@@ -344,13 +576,100 @@ export class AuthRepository {
     return this.sqlite.transaction(() => {
       const row = this.sqlite
         .prepare(
-          `SELECT id_hash AS idHash, challenge, kind, user_id AS userId, origin,
-                  rp_id AS rpId, expires_at AS expiresAt
+          `SELECT id_hash AS idHash, challenge, kind, user_id AS userId,
+                  session_hash AS sessionHash, operation_id_hash AS operationIdHash,
+                  origin, rp_id AS rpId, expires_at AS expiresAt
            FROM auth_challenges WHERE id_hash = ? AND kind = ? AND expires_at > ?`,
         )
         .get(idHash, kind, at) as StoredAuthChallenge | undefined;
       this.sqlite.prepare("DELETE FROM auth_challenges WHERE id_hash = ?").run(idHash);
       return row ?? null;
     })();
+  }
+
+  storeAuthOperation(operation: StoredAuthOperation): void {
+    this.sqlite.transaction(() => {
+      this.sqlite
+        .prepare("DELETE FROM auth_operations WHERE expires_at <= ?")
+        .run(operation.startedAt);
+      this.sqlite
+        .prepare(
+          `INSERT INTO auth_operations (
+             id_hash, session_hash, user_id, started_at, password_enrolled_at,
+             passkey_ids_json, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          operation.idHash,
+          operation.sessionHash,
+          operation.userId,
+          operation.startedAt,
+          operation.passwordEnrolledAt,
+          JSON.stringify(operation.passkeyIds),
+          operation.expiresAt,
+        );
+    })();
+  }
+
+  authOperation(idHash: string, sessionHash: string, at: string): StoredAuthOperation | null {
+    const row = this.sqlite
+      .prepare(
+        `SELECT id_hash AS idHash, session_hash AS sessionHash, user_id AS userId,
+                started_at AS startedAt, password_enrolled_at AS passwordEnrolledAt,
+                passkey_ids_json AS passkeyIdsJson, expires_at AS expiresAt
+         FROM auth_operations
+         WHERE id_hash = ? AND session_hash = ? AND expires_at > ?`,
+      )
+      .get(idHash, sessionHash, at) as
+      | (Omit<StoredAuthOperation, "passkeyIds"> & { passkeyIdsJson: string })
+      | undefined;
+    if (!row) return null;
+    const { passkeyIdsJson, ...operation } = row;
+    return { ...operation, passkeyIds: JSON.parse(passkeyIdsJson) as string[] };
+  }
+
+  consumeRateLimit(
+    keyHash: string,
+    limit: number,
+    windowMs: number,
+    currentMs: number,
+  ): number | null {
+    const consume = this.sqlite.transaction(() => {
+      this.sqlite.prepare("DELETE FROM auth_rate_limits WHERE reset_at <= ?").run(currentMs);
+      const row = this.sqlite
+        .prepare("SELECT attempts, reset_at AS resetAt FROM auth_rate_limits WHERE key_hash = ?")
+        .get(keyHash) as { attempts: number; resetAt: number } | undefined;
+      if (row && row.attempts >= limit)
+        return Math.max(1, Math.ceil((row.resetAt - currentMs) / 1_000));
+      if (row) {
+        this.sqlite
+          .prepare("UPDATE auth_rate_limits SET attempts = attempts + 1 WHERE key_hash = ?")
+          .run(keyHash);
+      } else {
+        this.sqlite
+          .prepare("INSERT INTO auth_rate_limits (key_hash, attempts, reset_at) VALUES (?, 1, ?)")
+          .run(keyHash, currentMs + windowMs);
+      }
+      return null;
+    });
+    return consume.immediate();
+  }
+
+  reduceRateLimit(keyHash: string): void {
+    const reduce = this.sqlite.transaction(() => {
+      this.sqlite
+        .prepare(
+          "UPDATE auth_rate_limits SET attempts = attempts - 1 WHERE key_hash = ? AND attempts > 1",
+        )
+        .run(keyHash);
+      this.sqlite
+        .prepare("DELETE FROM auth_rate_limits WHERE key_hash = ? AND attempts <= 1")
+        .run(keyHash);
+    });
+    reduce.immediate();
+  }
+
+  clearRateLimit(keyHash: string): void {
+    this.sqlite.prepare("DELETE FROM auth_rate_limits WHERE key_hash = ?").run(keyHash);
   }
 }

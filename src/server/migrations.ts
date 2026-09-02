@@ -1288,6 +1288,73 @@ const migrations: Migration[] = [
       UPDATE users SET last_active_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
     `,
   },
+  {
+    sql: `
+      ALTER TABLE users ADD COLUMN public_id TEXT;
+      ALTER TABLE users ADD COLUMN has_password INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE users ADD COLUMN password_enrolled_at TEXT;
+      UPDATE users
+      SET public_id = lower(hex(randomblob(16))), password_enrolled_at = created_at;
+      CREATE UNIQUE INDEX users_public_id_idx ON users(public_id);
+
+      ALTER TABLE sessions ADD COLUMN recent_auth_at TEXT;
+      UPDATE sessions SET recent_auth_at = created_at;
+
+      DROP TABLE auth_challenges;
+      CREATE TABLE auth_challenges (
+        id_hash TEXT PRIMARY KEY,
+        challenge TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN (
+          'passkey-registration', 'passkey-authentication', 'step-up-authentication'
+        )),
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        session_hash TEXT,
+        operation_id_hash TEXT,
+        origin TEXT NOT NULL,
+        rp_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX auth_challenges_expires_at_idx ON auth_challenges(expires_at);
+
+      CREATE TABLE pending_registrations (
+        id_hash TEXT PRIMARY KEY,
+        username TEXT NOT NULL COLLATE NOCASE,
+        webauthn_user_id BLOB NOT NULL UNIQUE,
+        challenge TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        rp_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX pending_registrations_username_idx
+      ON pending_registrations(username COLLATE NOCASE);
+      CREATE INDEX pending_registrations_expires_at_idx
+      ON pending_registrations(expires_at);
+
+      CREATE TABLE auth_operations (
+        id_hash TEXT PRIMARY KEY,
+        session_hash TEXT NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        started_at TEXT NOT NULL,
+        password_enrolled_at TEXT,
+        passkey_ids_json TEXT NOT NULL CHECK(json_valid(passkey_ids_json)),
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX auth_operations_expires_at_idx ON auth_operations(expires_at);
+
+      CREATE TABLE auth_rate_limits (
+        key_hash TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL,
+        reset_at INTEGER NOT NULL
+      );
+      CREATE INDEX auth_rate_limits_reset_at_idx ON auth_rate_limits(reset_at);
+
+      CREATE TABLE auth_secrets (
+        name TEXT PRIMARY KEY,
+        value BLOB NOT NULL
+      );
+      INSERT INTO auth_secrets (name, value) VALUES ('limiter-hmac', randomblob(32));
+    `,
+  },
 ];
 
 export function migrateDatabase(

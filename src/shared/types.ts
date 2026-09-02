@@ -143,8 +143,9 @@ export interface XArticleMedia {
 }
 
 export interface SessionUser {
-  id: number;
+  id: string;
   username: string;
+  hasPassword: boolean;
 }
 
 export interface Folder {

@@ -45,7 +45,7 @@ describe("local application API", () => {
       .prepare("UPDATE users SET last_active_at = '2000-01-01T00:00:00.000Z' WHERE id = 1")
       .run();
     await expect(application.invoke({ operation: "session" })).resolves.toEqual({
-      user: { id: 1, username: "On this Mac" },
+      user: { id: "local", username: "On this Mac", hasPassword: false },
     });
     expect(
       database.connection.prepare("SELECT last_active_at FROM users WHERE id = 1").pluck().get(),

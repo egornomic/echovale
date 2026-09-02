@@ -20,12 +20,19 @@ export function appUrl(path: string): string {
 export class ApiError extends Error {
   status: number;
   code: string | null;
+  operationId: string | null;
 
-  constructor(message: string, status: number, code: string | null = null) {
+  constructor(
+    message: string,
+    status: number,
+    code: string | null = null,
+    operationId: string | null = null,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.operationId = operationId;
   }
 }
 

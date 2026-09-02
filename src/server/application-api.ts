@@ -28,7 +28,7 @@ import type { WebFeedService } from "./web-feed.js";
 import type { XMediaService } from "./x-media.js";
 
 export const LOCAL_USER_ID = 1;
-const LOCAL_USER = { id: LOCAL_USER_ID, username: "On this Mac" } as const;
+const LOCAL_USER = { id: "local", username: "On this Mac", hasPassword: false } as const;
 
 const id = z.number().int().positive();
 const nullableId = id.nullable();
@@ -156,7 +156,7 @@ export class ApplicationApi {
   readonly #telegramMedia: TelegramMediaService;
   readonly #xMedia: XMediaService;
   readonly #feedDiscoveryTimeoutMs: number | undefined;
-  readonly #userId = LOCAL_USER.id;
+  readonly #userId = LOCAL_USER_ID;
 
   constructor(services: ApplicationApiServices) {
     this.#database = services.database;
@@ -188,6 +188,12 @@ export class ApplicationApi {
       case "passkeys":
         return { passkeys: [] };
       case "changePassword":
+      case "removePassword":
+      case "passkeySignupOptions":
+      case "completePasskeySignup":
+      case "stepUpPassword":
+      case "stepUpPasskeyOptions":
+      case "stepUpPasskey":
       case "passkeyRegistrationOptions":
       case "registerPasskey":
       case "renamePasskey":

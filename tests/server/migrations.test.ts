@@ -224,7 +224,7 @@ describe("database migrations", () => {
   it("cuts stored summaries over to the date-aware grounded harness", async () => {
     const database = new AppDatabase(":memory:");
     try {
-      const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+      const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
       const reader = (await auth.register("reader", "reader-password"))?.user;
       const partner = (await auth.register("partner", "partner-password"))?.user;
       const feedReader = (await auth.register("feed-reader", "feed-reader-password"))?.user;
@@ -508,11 +508,11 @@ Return only the summary in plain text.`,
 
     const database = new AppDatabase(path);
     try {
-      const authService = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+      const authService = new AuthService(database.auth, 20, { maxAccounts: 100 });
       const registration = await authService.register("reader", "reader-password");
-      expect(registration?.user).toEqual({ id: 1, username: "reader" });
+      expect(registration?.user).toMatchObject({ id: 1, username: "reader" });
       expect(await authService.login("reader", "wrong-password")).toBeNull();
-      expect((await authService.login("READER", "reader-password"))?.user).toEqual({
+      expect((await authService.login("READER", "reader-password"))?.user).toMatchObject({
         id: 1,
         username: "reader",
       });
@@ -554,7 +554,7 @@ Return only the summary in plain text.`,
       expect(storedUser.passwordHash).not.toContain("reader-password");
 
       const partner = await authService.register("partner", "partner-password");
-      expect(partner?.user).toEqual({ id: 2, username: "partner" });
+      expect(partner?.user).toMatchObject({ id: 2, username: "partner" });
       expect(database.feeds.listFeeds(2)).toEqual([]);
       expect(database.settings.getSettings(2)).toEqual({
         pollIntervalMinutes: 20,
@@ -665,7 +665,7 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        39,
+        40,
       );
       expect(
         database.connection.prepare("SELECT last_active_at FROM users WHERE id = 1").pluck().get(),
@@ -719,12 +719,12 @@ Return only the summary in plain text.`,
     const reopened = new AppDatabase(path);
     try {
       const authService = new AuthService(reopened.auth);
-      expect((await authService.login("reader", "reader-password"))?.user).toEqual({
+      expect((await authService.login("reader", "reader-password"))?.user).toMatchObject({
         id: 1,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        39,
+        40,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

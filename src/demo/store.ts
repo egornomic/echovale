@@ -25,7 +25,7 @@ import type {
 } from "../shared/types.js";
 import { createDemoData, DEMO_RELEASE_ARTICLE_ID, type DemoData } from "./fixtures.js";
 
-const DEMO_USER: SessionUser = { id: 1, username: "demo" };
+const DEMO_USER: SessionUser = { id: "demo", username: "demo", hasPassword: false };
 
 function clone<T>(value: T): T {
   return structuredClone(value);

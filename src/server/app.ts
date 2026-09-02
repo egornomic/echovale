@@ -161,6 +161,8 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
       path === "/api/auth/config" ||
       path === "/api/auth/login" ||
       path === "/api/auth/register" ||
+      path === "/api/auth/register/passkey/options" ||
+      path === "/api/auth/register/passkey" ||
       path === "/api/auth/session" ||
       path === "/api/auth/passkey/options" ||
       path === "/api/auth/passkey"
@@ -169,6 +171,26 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
     const user = services.authService.userForToken(sessionToken(request.headers.cookie));
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });
     requestUsers.set(request, user);
+    const sensitive =
+      (request.method === "POST" &&
+        (path === "/api/auth/passkeys/options" || path === "/api/auth/passkeys")) ||
+      (request.method === "DELETE" && path.startsWith("/api/auth/passkeys/")) ||
+      (["PUT", "DELETE"].includes(request.method) && path === "/api/auth/password") ||
+      (["PUT", "DELETE"].includes(request.method) &&
+        /^\/api\/ai\/providers\/[^/]+\/key$/.test(path));
+    if (sensitive) {
+      const recent = services.authService.beginSensitiveOperation(
+        sessionToken(request.headers.cookie),
+      );
+      if (!recent) return reply.code(401).send({ error: "Sign in to continue." });
+      if (recent.required) {
+        return reply.code(428).send({
+          error: "Authenticate again to continue.",
+          code: "RECENT_AUTH_REQUIRED",
+          operationId: recent.operationId,
+        });
+      }
+    }
   });
 
   await app.register(authRoutes, {

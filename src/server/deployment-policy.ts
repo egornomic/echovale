@@ -29,3 +29,12 @@ export function deploymentPolicy(value: string | undefined): DeploymentPolicy {
   if (value === "public") return PUBLIC_DEPLOYMENT_POLICY;
   throw new Error("FEEDFOLD_DEPLOYMENT_MODE must be private or public");
 }
+
+export function registrationAccountCap(
+  policy: DeploymentPolicy,
+  value: string | undefined,
+): number {
+  if (policy.mode === "private") return 1;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+}

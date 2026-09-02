@@ -22,12 +22,10 @@ const loginCredentials = z.object({
   password: z.string().min(1).max(128),
 });
 const registrationCredentials = z.object({ username, password });
-const passwordChange = z.object({
-  currentPassword: z.string().min(1).max(128),
-  newPassword: password,
-});
-const passwordConfirmation = z.object({ password: z.string().min(1).max(128) });
+const passkeySignup = z.object({ username });
+const passwordCredential = z.object({ password });
 const ceremonyId = z.string().min(32).max(128);
+const operationId = z.string().min(32).max(128);
 const passkeyResponse = z
   .object({
     id: z.string().min(1).max(2_048),
@@ -38,6 +36,9 @@ const passkeyResponse = z
   })
   .passthrough();
 const passkeyCeremony = z.object({ ceremonyId, response: passkeyResponse });
+const passkeySignupCeremony = z.object({ registrationId: operationId, response: passkeyResponse });
+const stepUpPassword = z.object({ operationId, password: z.string().min(1).max(128) });
+const stepUpOptions = z.object({ operationId });
 const passkeyId = z.string().min(1).max(2_048);
 const passkeyRename = z.object({
   name: z
@@ -46,44 +47,6 @@ const passkeyRename = z.object({
     .min(1, "Enter a name for the passkey.")
     .max(80, "Use no more than 80 characters for the passkey name."),
 });
-
-class AttemptLimiter {
-  private readonly attempts = new Map<string, number[]>();
-
-  private remember(key: string, attempts: number[]): void {
-    this.attempts.delete(key);
-    this.attempts.set(key, attempts);
-    while (this.attempts.size > 10_000) {
-      const oldestKey = this.attempts.keys().next().value;
-      if (oldestKey === undefined) break;
-      this.attempts.delete(oldestKey);
-    }
-  }
-
-  check(key: string, limit: number, windowMs = 15 * 60_000, record = true): number | null {
-    const cutoff = Date.now() - windowMs;
-    const recent = (this.attempts.get(key) ?? []).filter((time) => time > cutoff);
-    if (recent.length >= limit) {
-      this.remember(key, recent);
-      return Math.max(1, Math.ceil((recent[0] + windowMs - Date.now()) / 1_000));
-    }
-    if (record) recent.push(Date.now());
-    this.remember(key, recent);
-    return null;
-  }
-
-  record(key: string): void {
-    const recent = this.attempts.get(key) ?? [];
-    recent.push(Date.now());
-    this.remember(key, recent);
-  }
-
-  clear(key: string): void {
-    this.attempts.delete(key);
-  }
-}
-
-const limiter = new AttemptLimiter();
 
 function publicOrigin(request: FastifyRequest, configuredOrigin: string | undefined): URL {
   if (configuredOrigin) return new URL(configuredOrigin);
@@ -119,7 +82,7 @@ function sendSession(
       "Set-Cookie",
       authService.sessionCookie(session.token, secureRequest(request, configuredOrigin)),
     )
-    .send({ user: session.user });
+    .send({ user: authService.publicUser(session.user) });
 }
 
 function limited(reply: FastifyReply, retryAfter: number | null): FastifyReply | null {
@@ -127,7 +90,7 @@ function limited(reply: FastifyReply, retryAfter: number | null): FastifyReply |
   return reply
     .header("Retry-After", retryAfter)
     .code(429)
-    .send({ error: "Too many attempts. Wait a few minutes, then try again." });
+    .send({ error: "Too many attempts. Try again when the cooldown ends." });
 }
 
 function authenticatedUser(request: FastifyRequest, authService: AuthService) {
@@ -138,51 +101,80 @@ export async function authRoutes(
   app: FastifyInstance,
   { authService, configuredOrigin }: { authService: AuthService; configuredOrigin?: string },
 ): Promise<void> {
-  app.get("/api/auth/config", async (request) => {
-    const origin = publicOrigin(request, configuredOrigin);
-    return {
-      registrationAvailable: authService.registrationAvailable(),
-      passkeysAvailable: passkeysAvailable(origin),
-    };
-  });
+  app.get("/api/auth/config", async (request) => ({
+    registrationAvailable: authService.registrationAvailable(),
+    passkeysAvailable: passkeysAvailable(publicOrigin(request, configuredOrigin)),
+  }));
 
   app.post("/api/auth/login", async (request, reply) => {
     const body = loginCredentials.parse(request.body);
-    const accountKey = `password:${request.ip}:${body.username.toLocaleLowerCase("en-US")}`;
-    const rateLimited =
-      limited(reply, limiter.check(`password-ip:${request.ip}`, 50, undefined, false)) ??
-      limited(reply, limiter.check(accountKey, 10, undefined, false));
+    const rateLimited = limited(reply, authService.consumeLoginAttempt(request.ip, body.username));
     if (rateLimited) return rateLimited;
     const session = await authService.login(body.username, body.password);
-    if (!session) {
-      limiter.record(`password-ip:${request.ip}`);
-      limiter.record(accountKey);
-      return reply.code(401).send({ error: "The username or password is incorrect." });
-    }
-    limiter.clear(accountKey);
+    if (!session) return reply.code(401).send({ error: "The username or password is incorrect." });
+    authService.loginSucceeded(request.ip, session.user.username);
     return sendSession(reply, request, authService, session, configuredOrigin);
   });
 
   app.post("/api/auth/register", async (request, reply) => {
-    const rateLimited = limited(reply, limiter.check(`register:${request.ip}`, 10, 60 * 60_000));
+    const rateLimited = limited(reply, authService.consumeRegistrationAttempt(request.ip));
     if (rateLimited) return rateLimited;
     const body = registrationCredentials.parse(request.body);
-    if (!authService.registrationAvailable()) {
+    if (!authService.registrationAvailable())
       return reply.code(403).send({ error: "Account creation is closed on this server." });
-    }
     const session = await authService.register(body.username, body.password);
     if (!session) {
-      return authService.registrationAvailable()
-        ? reply.code(409).send({ error: "That username is already in use." })
-        : reply.code(403).send({ error: "Account creation is closed on this server." });
+      if (!authService.registrationAvailable())
+        return reply.code(403).send({ error: "Account creation is closed on this server." });
+      return reply
+        .code(409)
+        .send({ error: "The account could not be created. Choose another name or try again." });
     }
     return sendSession(reply.code(201), request, authService, session, configuredOrigin);
+  });
+
+  app.post("/api/auth/register/passkey/options", async (request, reply) => {
+    const rateLimited = limited(reply, authService.consumeRegistrationAttempt(request.ip));
+    if (rateLimited) return rateLimited;
+    const body = passkeySignup.parse(request.body);
+    const context = webAuthnContext(request, configuredOrigin);
+    if (!passkeysAvailable(new URL(context.origin)))
+      return reply.code(400).send({ error: "Passkeys require HTTPS or localhost." });
+    if (!authService.registrationAvailable())
+      return reply.code(403).send({ error: "Account creation is closed on this server." });
+    const result = await authService.passkeySignupOptions(body.username, context);
+    if (!result) {
+      if (!authService.registrationAvailable())
+        return reply.code(403).send({ error: "Account creation is closed on this server." });
+      return reply
+        .code(409)
+        .send({ error: "The account could not be created. Choose another name or try again." });
+    }
+    return result;
+  });
+
+  app.post("/api/auth/register/passkey", async (request, reply) => {
+    const body = passkeySignupCeremony.parse(request.body);
+    try {
+      const session = await authService.completePasskeySignup(
+        body.registrationId,
+        body.response as unknown as RegistrationResponseJSON,
+      );
+      if (!session) {
+        if (!authService.registrationAvailable())
+          return reply.code(403).send({ error: "Account creation is closed on this server." });
+        throw new Error("Passkey signup failed");
+      }
+      return sendSession(reply.code(201), request, authService, session, configuredOrigin);
+    } catch {
+      return reply.code(400).send({ error: "The account could not be created. Try again." });
+    }
   });
 
   app.get("/api/auth/session", async (request, reply) => {
     const user = authenticatedUser(request, authService);
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });
-    return { user };
+    return { user: authService.publicUser(user) };
   });
 
   app.post("/api/auth/logout", async (request, reply) => {
@@ -196,40 +188,80 @@ export async function authRoutes(
       .send();
   });
 
-  app.post("/api/auth/password", async (request, reply) => {
+  app.post("/api/auth/step-up/password", async (request, reply) => {
+    const token = sessionToken(request.headers.cookie);
+    if (!token) return reply.code(401).send({ error: "Sign in to continue." });
+    const rateLimited = limited(reply, authService.consumeStepUpAttempt(token));
+    if (rateLimited) return rateLimited;
+    const body = stepUpPassword.parse(request.body);
+    if (!(await authService.stepUpWithPassword(token, body.operationId, body.password)))
+      return reply.code(401).send({ error: "Authentication failed. Try again." });
+    authService.stepUpSucceeded(token);
+    return reply.code(204).send();
+  });
+
+  app.post("/api/auth/step-up/passkey/options", async (request, reply) => {
+    const token = sessionToken(request.headers.cookie);
+    if (!token) return reply.code(401).send({ error: "Sign in to continue." });
+    const rateLimited = limited(reply, authService.consumeStepUpAttempt(token));
+    if (rateLimited) return rateLimited;
+    const body = stepUpOptions.parse(request.body);
+    const context = webAuthnContext(request, configuredOrigin);
+    if (!passkeysAvailable(new URL(context.origin)))
+      return reply.code(400).send({ error: "Passkeys require HTTPS or localhost." });
+    const result = await authService.stepUpPasskeyOptions(token, body.operationId, context);
+    if (!result) return reply.code(401).send({ error: "Authentication failed. Try again." });
+    return result;
+  });
+
+  app.post("/api/auth/step-up/passkey", async (request, reply) => {
+    const token = sessionToken(request.headers.cookie);
+    if (!token) return reply.code(401).send({ error: "Sign in to continue." });
+    const body = passkeyCeremony.parse(request.body);
+    try {
+      if (
+        !(await authService.verifyStepUpPasskey(
+          token,
+          body.ceremonyId,
+          body.response as unknown as AuthenticationResponseJSON,
+        ))
+      )
+        throw new Error("Step-up failed");
+      authService.stepUpSucceeded(token);
+      return reply.code(204).send();
+    } catch {
+      return reply.code(401).send({ error: "Authentication failed. Try again." });
+    }
+  });
+
+  app.put("/api/auth/password", async (request, reply) => {
     const user = authenticatedUser(request, authService);
     const token = sessionToken(request.headers.cookie);
     if (!user || !token) return reply.code(401).send({ error: "Sign in to continue." });
-    const body = passwordChange.parse(request.body);
-    const sensitiveKey = `sensitive:${request.ip}:${user.id}`;
-    const rateLimited = limited(reply, limiter.check(sensitiveKey, 10, undefined, false));
-    if (rateLimited) return rateLimited;
-    if (body.currentPassword === body.newPassword) {
-      return reply.code(400).send({ error: "Choose a password you have not already used here." });
-    }
-    if (
-      !(await authService.changePassword(user.id, token, body.currentPassword, body.newPassword))
-    ) {
-      limiter.record(sensitiveKey);
-      return reply.code(401).send({ error: "The current password is incorrect." });
-    }
-    limiter.clear(sensitiveKey);
+    const body = passwordCredential.parse(request.body);
+    await authService.setPassword(user.id, token, body.password);
+    return reply.code(204).send();
+  });
+
+  app.delete("/api/auth/password", async (request, reply) => {
+    const user = authenticatedUser(request, authService);
+    if (!user) return reply.code(401).send({ error: "Sign in to continue." });
+    await authService.removePassword(user.id);
     return reply.code(204).send();
   });
 
   app.get("/api/auth/passkeys", async (request, reply) => {
     const user = authenticatedUser(request, authService);
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });
-    return { passkeys: authService.passkeys(user.id) };
+    return { passkeys: authService.passkeys(user.id), hasPassword: user.hasPassword };
   });
 
   app.post("/api/auth/passkeys/options", async (request, reply) => {
     const user = authenticatedUser(request, authService);
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });
     const context = webAuthnContext(request, configuredOrigin);
-    if (!passkeysAvailable(new URL(context.origin))) {
+    if (!passkeysAvailable(new URL(context.origin)))
       return reply.code(400).send({ error: "Passkeys require HTTPS or localhost." });
-    }
     const result = await authService.passkeyRegistrationOptions(user.id, context);
     if (!result) return reply.code(401).send({ error: "Sign in to continue." });
     return result;
@@ -258,51 +290,40 @@ export async function authRoutes(
     const id = passkeyId.parse((request.params as { id?: unknown }).id);
     const body = passkeyRename.parse(request.body);
     const passkey = authService.renamePasskey(user.id, id, body.name);
-    if (!passkey) {
-      return reply.code(404).send({ error: "That passkey no longer exists." });
-    }
-    return { passkey };
+    return passkey
+      ? { passkey }
+      : reply.code(404).send({ error: "That passkey no longer exists." });
   });
 
   app.delete("/api/auth/passkeys/:id", async (request, reply) => {
     const user = authenticatedUser(request, authService);
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });
-    const body = passwordConfirmation.parse(request.body);
-    const sensitiveKey = `sensitive:${request.ip}:${user.id}`;
-    const rateLimited = limited(reply, limiter.check(sensitiveKey, 10, undefined, false));
-    if (rateLimited) return rateLimited;
-    if (!(await authService.passwordMatches(user.id, body.password))) {
-      limiter.record(sensitiveKey);
-      return reply.code(401).send({ error: "The password is incorrect." });
-    }
-    limiter.clear(sensitiveKey);
     const id = passkeyId.parse((request.params as { id?: unknown }).id);
-    if (!authService.deletePasskey(user.id, id)) {
+    if (!authService.deletePasskey(user.id, id))
       return reply.code(404).send({ error: "That passkey no longer exists." });
-    }
     return reply.code(204).send();
   });
 
   app.post("/api/auth/passkey/options", async (request, reply) => {
-    const rateLimited = limited(reply, limiter.check(`passkey:${request.ip}`, 30));
+    const rateLimited = limited(reply, authService.consumePasskeyLoginAttempt(request.ip));
     if (rateLimited) return rateLimited;
     const context = webAuthnContext(request, configuredOrigin);
-    if (!passkeysAvailable(new URL(context.origin))) {
+    if (!passkeysAvailable(new URL(context.origin)))
       return reply.code(400).send({ error: "Passkeys require HTTPS or localhost." });
-    }
     return authService.passkeyAuthenticationOptions(context);
   });
 
   app.post("/api/auth/passkey", async (request, reply) => {
-    const rateLimited = limited(reply, limiter.check(`passkey:${request.ip}`, 30));
-    if (rateLimited) return rateLimited;
     const body = passkeyCeremony.parse(request.body);
+    const rateLimited = limited(reply, authService.consumePasskeyAccountAttempt(body.response.id));
+    if (rateLimited) return rateLimited;
     try {
       const session = await authService.verifyPasskeyAuthentication(
         body.ceremonyId,
         body.response as unknown as AuthenticationResponseJSON,
       );
       if (!session) throw new Error("Passkey verification failed");
+      authService.passkeyLoginSucceeded(request.ip, session.user.username);
       return sendSession(reply, request, authService, session, configuredOrigin);
     } catch {
       return reply.code(401).send({ error: "The passkey could not sign you in. Try again." });

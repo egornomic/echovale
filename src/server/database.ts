@@ -42,6 +42,7 @@ export class AppDatabase {
   ) {
     this.deploymentPolicy = deploymentPolicy;
     this.connection = new Sqlite(path);
+    this.connection.pragma("busy_timeout = 5000");
     this.connection.pragma("foreign_keys = ON");
     this.connection.pragma("journal_mode = WAL");
     this.wasNewDatabase =

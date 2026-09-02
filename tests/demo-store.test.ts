@@ -11,7 +11,11 @@ describe("static demo data", () => {
     const fetch = vi.fn(() => Promise.reject(new Error("The network should not be used.")));
     vi.stubGlobal("fetch", fetch);
 
-    await expect(demoApi.session()).resolves.toEqual({ id: 1, username: "demo" });
+    await expect(demoApi.session()).resolves.toEqual({
+      id: "demo",
+      username: "demo",
+      hasPassword: false,
+    });
     await expect(demoApi.bootstrap()).resolves.toMatchObject({
       counts: { unread: 15, starred: 1, all: 17 },
     });

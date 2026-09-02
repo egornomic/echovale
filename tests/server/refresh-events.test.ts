@@ -68,7 +68,7 @@ function eventReader(reader: ReadableStreamDefaultReader<Uint8Array>): () => Pro
 describe("feed refresh delivery events", () => {
   it("notifies only the owning account after delivered articles are committed", async () => {
     const database = new AppDatabase(":memory:");
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const firstUser = (await auth.register("first-reader", "reader-password"))?.user;
     const secondUser = (await auth.register("second-reader", "reader-password"))?.user;
     if (!firstUser || !secondUser) throw new Error("Test accounts were not created");
@@ -139,8 +139,11 @@ describe("feed refresh delivery events", () => {
     });
     const cookie = registration.headers.get("set-cookie")?.split(";", 1)[0];
     if (!cookie) throw new Error("Registration did not return a session cookie");
-    const account = (await registration.json()) as { user: { id: number } };
-    const feed = database.feeds.createFeed(account.user.id, {
+    const accountId = database.connection
+      .prepare("SELECT id FROM users WHERE username = 'stream-reader'")
+      .pluck()
+      .get() as number;
+    const feed = database.feeds.createFeed(accountId, {
       title: "Streamed feed",
       feedUrl: "https://example.test/stream.xml",
       folderId: null,
@@ -162,7 +165,7 @@ describe("feed refresh delivery events", () => {
     await refresh.waitForIdle();
 
     expect(await within(nextEvent())).toBe("data: changed");
-    expect(database.bootstrap.getBootstrap(account.user.id).counts.unread).toBe(1);
+    expect(database.bootstrap.getBootstrap(accountId).counts.unread).toBe(1);
 
     const logout = await fetch(`${origin}/api/auth/logout`, {
       method: "POST",

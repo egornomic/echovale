@@ -5,6 +5,7 @@ import {
   deploymentPolicy,
   PRIVATE_DEPLOYMENT_POLICY,
   PUBLIC_DEPLOYMENT_POLICY,
+  registrationAccountCap,
 } from "../../src/server/deployment-policy.js";
 import { ExtractionQueue } from "../../src/server/extraction.js";
 import { AuthService } from "../../src/server/features/auth/service.js";
@@ -24,6 +25,15 @@ describe("deployment policy", () => {
     expect(() => deploymentPolicy("hosted")).toThrow(
       "FEEDFOLD_DEPLOYMENT_MODE must be private or public",
     );
+  });
+
+  it("uses the account cap as the only public registration switch", () => {
+    expect(registrationAccountCap(PRIVATE_DEPLOYMENT_POLICY, undefined)).toBe(1);
+    expect(registrationAccountCap(PRIVATE_DEPLOYMENT_POLICY, "20")).toBe(1);
+    expect(registrationAccountCap(PUBLIC_DEPLOYMENT_POLICY, undefined)).toBe(0);
+    expect(registrationAccountCap(PUBLIC_DEPLOYMENT_POLICY, "invalid")).toBe(0);
+    expect(registrationAccountCap(PUBLIC_DEPLOYMENT_POLICY, "0")).toBe(0);
+    expect(registrationAccountCap(PUBLIC_DEPLOYMENT_POLICY, "20")).toBe(20);
   });
 
   it("keeps inactive private subscriptions scheduled", () => {
@@ -51,7 +61,7 @@ describe("deployment policy", () => {
 
   it("disables the public manual refresh API and capability", async () => {
     const database = new AppDatabase(":memory:", 20, PUBLIC_DEPLOYMENT_POLICY);
-    const auth = new AuthService(database.auth, 20, { allowPublicRegistration: true });
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const extraction = new ExtractionQueue(database.extractions, 1, 1_000);
     let requests = 0;
     const refresh = new FeedRefreshService(database.feeds, 1, 1_000, undefined, async () => {
