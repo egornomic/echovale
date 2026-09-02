@@ -22,11 +22,12 @@ import { ZodError } from "zod";
 import { AiError } from "../server/ai/errors.js";
 import { ApplicationApi, ApplicationApiError, LOCAL_USER_ID } from "../server/application-api.js";
 import { AppDatabase } from "../server/database.js";
-import { InvalidRequestError } from "../server/errors.js";
+import { InvalidRequestError, OperationForbiddenError } from "../server/errors.js";
 import { ExtractionQueue } from "../server/extraction.js";
 import { AiService } from "../server/features/ai/service.js";
 import { FeedDiscoveryError } from "../server/feed-discovery.js";
 import { closePublicNetwork } from "../server/public-network.js";
+import { QuotaExceededError } from "../server/quota.js";
 import { FeedRefreshService } from "../server/refresh.js";
 import { TelegramMediaService } from "../server/telegram-media.js";
 import { WebFeedError, WebFeedService } from "../server/web-feed.js";
@@ -333,7 +334,26 @@ function errorResponse(error: unknown): DesktopResponse {
   if (error instanceof InvalidRequestError) {
     return { ok: false, error: { message: error.message, status: 400, code: null } };
   }
+  if (error instanceof OperationForbiddenError) {
+    return { ok: false, error: { message: error.message, status: 403, code: null } };
+  }
+  if (error instanceof QuotaExceededError) {
+    return {
+      ok: false,
+      error: { message: error.message, status: error.statusCode, code: error.code },
+    };
+  }
   if (error instanceof SqliteError) {
+    if (error.code === "SQLITE_FULL") {
+      return {
+        ok: false,
+        error: {
+          message: "This feedfold server has reached its storage limit.",
+          status: 507,
+          code: "quota_exceeded",
+        },
+      };
+    }
     if (
       error.code === "SQLITE_CONSTRAINT_UNIQUE" ||
       error.code === "SQLITE_CONSTRAINT_PRIMARYKEY"

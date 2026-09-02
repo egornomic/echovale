@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { QuotaExceededError } from "../../quota.js";
 import type { FeedRefreshService } from "../../refresh.js";
 import type { UserId } from "../routes.js";
 import type { OpmlService } from "./service.js";
@@ -19,6 +20,7 @@ export async function opmlRoutes(
       refreshService.request(feedIds);
       return result;
     } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
       return reply
         .code(400)
         .send({ error: error instanceof Error ? error.message : String(error) });

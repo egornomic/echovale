@@ -1,4 +1,5 @@
 import { fetchFeed } from "./feed-http.js";
+import type { QuotaService } from "./quota.js";
 import {
   parseTelegramPostMedia,
   type TelegramPostMedia,
@@ -19,6 +20,7 @@ export class TelegramMediaService {
   constructor(
     private readonly timeoutMs = 15_000,
     private readonly fetcher: typeof fetchFeed = fetchFeed,
+    private readonly quotas?: QuotaService,
   ) {}
 
   async mediaForPost(postUrl: string): Promise<TelegramPostMedia[]> {
@@ -27,14 +29,16 @@ export class TelegramMediaService {
 
     const embedUrl = telegramPostEmbedUrl(postUrl);
     if (!embedUrl) throw new Error("Invalid Telegram post URL");
-    const response = await this.fetcher(embedUrl, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
-        "User-Agent": USER_AGENT,
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    const fetchMedia = () =>
+      this.fetcher(embedUrl, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+          "User-Agent": USER_AGENT,
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    const response = this.quotas ? await this.quotas.runOutbound(fetchMedia) : await fetchMedia();
     if (!response.ok) throw new Error(`Telegram post returned HTTP ${response.status}`);
 
     const items = parseTelegramPostMedia(await response.text(), postUrl);

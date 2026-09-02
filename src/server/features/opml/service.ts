@@ -1,6 +1,7 @@
 import { generateOpml, parseOpml } from "feedsmith";
 import type { Opml } from "feedsmith/types";
 import type { ImportResult } from "../../../shared/types.js";
+import type { QuotaService } from "../../quota.js";
 import type { FeedService } from "../feeds/service.js";
 import type { FolderService } from "../folders/service.js";
 
@@ -22,10 +23,18 @@ export class OpmlService {
   constructor(
     private readonly feeds: FeedService,
     private readonly folders: FolderService,
+    private readonly quotas: QuotaService,
   ) {}
 
   import(userId: number, source: string): OpmlImportOutcome {
     const document = parseOpml(source);
+    const outlines = (document.body?.outlines ?? []) as ParsedOutline[];
+    const countFeeds = (items: ParsedOutline[]): number =>
+      items.reduce(
+        (count, outline) => count + (outline.xmlUrl ? 1 : 0) + countFeeds(outline.outlines ?? []),
+        0,
+      );
+    this.quotas.assertOpmlUpload(source, countFeeds(outlines));
     const result: OpmlImportOutcome = { imported: 0, duplicates: 0, failed: [], feedIds: [] };
     const existingUrls = new Set(this.feeds.listOpmlFeeds(userId).map((feed) => feed.feedUrl));
 
@@ -68,7 +77,7 @@ export class OpmlService {
       }
     };
 
-    visit((document.body?.outlines ?? []) as ParsedOutline[], null);
+    visit(outlines, null);
     return result;
   }
 

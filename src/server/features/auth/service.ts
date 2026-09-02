@@ -242,6 +242,10 @@ export class AuthService {
     this.repository.clearRateLimit(this.keyedHash("step-up-session", sessionHash));
   }
 
+  registrationQuotaReached(): boolean {
+    return this.repository.registrationQuotaReached();
+  }
+
   async register(username: string, password: string): Promise<LoginSession | null> {
     const token = randomBytes(32).toString("base64url");
     const storedSession = this.storedSession(token);

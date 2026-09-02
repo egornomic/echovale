@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { JSDOM } from "jsdom";
 import type { WebFeedAnalysis, WebFeedConfig } from "../shared/types.js";
 import type { ParsedFeed } from "./features/shared.js";
+import type { QuotaService } from "./quota.js";
 import {
   WebFeedBrowserLoader,
   type WebFeedBrowserLoaderOptions,
@@ -47,11 +48,13 @@ export class WebFeedService {
   readonly #snapshotTtlMs: number;
   readonly #now: () => number;
   readonly #snapshots = new Map<string, StoredSnapshot>();
+  readonly #quotas: QuotaService | undefined;
 
   constructor(options: WebFeedServiceOptions = {}) {
     this.#loader = new WebFeedBrowserLoader(options);
     this.#snapshotTtlMs = finitePositive(options.snapshotTtlMs, DEFAULT_SNAPSHOT_TTL_MS);
     this.#now = options.now ?? Date.now;
+    this.#quotas = options.quotas;
   }
 
   async analyze(
@@ -59,7 +62,9 @@ export class WebFeedService {
     inputUrl: string,
     savedConfig: WebFeedConfig | null = null,
   ): Promise<WebFeedAnalysis> {
-    const loaded = await this.#loader.load(inputUrl, savedConfig);
+    this.#quotas?.consume("web_analysis", Number(userId));
+    const load = () => this.#loader.load(inputUrl, savedConfig);
+    const loaded = this.#quotas ? await this.#quotas.runChromium(load) : await load();
     const dom = new JSDOM(loaded.html, { url: loaded.pageUrl });
     try {
       const { document } = dom.window;
@@ -120,7 +125,8 @@ export class WebFeedService {
   }
 
   async extract(config: WebFeedConfig): Promise<WebFeedExtraction> {
-    const loaded = await this.#loader.load(config.pageUrl, config);
+    const load = () => this.#loader.load(config.pageUrl, config);
+    const loaded = this.#quotas ? await this.#quotas.runChromium(load) : await load();
     const dom = new JSDOM(loaded.html, { url: loaded.pageUrl });
     try {
       const extracted = extractWebFeedSelection(

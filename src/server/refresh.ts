@@ -203,11 +203,13 @@ export class FeedRefreshService {
       });
       if (feed.etag) headers.set("If-None-Match", feed.etag);
       if (feed.lastModified) headers.set("If-Modified-Since", feed.lastModified);
-      let response = await this.feedFetcher(sourceUrl, {
-        headers,
-        redirect: "follow",
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
+      let response = await this.feeds.runOutbound(() =>
+        this.feedFetcher(sourceUrl, {
+          headers,
+          redirect: "follow",
+          signal: AbortSignal.timeout(this.timeoutMs),
+        }),
+      );
       httpStatus = response.status;
       if (response.status === 304) {
         this.feeds.completeSourceRefresh(feed.id, {
@@ -267,11 +269,13 @@ export class FeedRefreshService {
   ): Promise<{ response: Response; parsed: ParsedFeed } | null> {
     const url = wordpressPostsUrl(feedUrl);
     if (!url) return null;
-    const response = await this.feedFetcher(url, {
-      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-      redirect: "follow",
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    const response = await this.feeds.runOutbound(() =>
+      this.feedFetcher(url, {
+        headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+        redirect: "follow",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      }),
+    );
     if (!response.ok) return null;
     return {
       response,

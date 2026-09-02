@@ -104,14 +104,17 @@ async function fetchSource(
   signal: AbortSignal,
   required: boolean,
   fetcher: typeof fetchFeed,
+  runOutbound: <T>(task: () => Promise<T>) => Promise<T>,
 ): Promise<{ source: string; url: string; contentType: string | null } | null> {
   let response: Response;
   try {
-    response = await fetcher(url, {
-      headers: { Accept: FEED_ACCEPT, "User-Agent": USER_AGENT },
-      redirect: "follow",
-      signal,
-    });
+    response = await runOutbound(() =>
+      fetcher(url, {
+        headers: { Accept: FEED_ACCEPT, "User-Agent": USER_AGENT },
+        redirect: "follow",
+        signal,
+      }),
+    );
   } catch (error) {
     if (signal.aborted) {
       throw new FeedDiscoveryError("This address did not respond in time. Try again.", "timeout");
@@ -170,12 +173,13 @@ export async function discoverFeed(
   inputUrl: string,
   timeoutMs = 15_000,
   fetcher: typeof fetchFeed = fetchFeed,
+  runOutbound: <T>(task: () => Promise<T>) => Promise<T> = (task) => task(),
 ): Promise<FeedDiscoveryResult> {
   const input = new URL(inputUrl).toString();
   const url = nitterFeedUrl(input) ?? input;
   const telegram = telegramChannelUrls(url);
   const signal = AbortSignal.timeout(timeoutMs);
-  const page = await fetchSource(telegram?.previewUrl ?? url, signal, true, fetcher);
+  const page = await fetchSource(telegram?.previewUrl ?? url, signal, true, fetcher, runOutbound);
   if (!page)
     throw new FeedDiscoveryError(
       "Could not load this address. Check it, then try again.",
@@ -201,7 +205,7 @@ export async function discoverFeed(
   if (direct) return { kind: "published", preview: direct };
 
   for (const candidate of feedCandidates(page.source, page.url)) {
-    const result = await fetchSource(candidate, signal, false, fetcher);
+    const result = await fetchSource(candidate, signal, false, fetcher, runOutbound);
     if (!result) continue;
     const found = parsePreview(result.source, result.url);
     if (found) return { kind: "published", preview: found };

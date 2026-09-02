@@ -1,5 +1,6 @@
 import type Sqlite from "better-sqlite3";
 import { cleanArticleHtml } from "../../article-html.js";
+import type { QuotaService } from "../../quota.js";
 import type { ArticleRepository } from "../articles/repository.js";
 import type { RuleRepository } from "../rules/repository.js";
 import type { ParsedFeed } from "../shared.js";
@@ -23,6 +24,7 @@ export class FeedIngestionService {
     private readonly feeds: FeedRepository,
     private readonly articles: ArticleRepository,
     private readonly rules: RuleRepository,
+    private readonly quotas: QuotaService,
   ) {}
 
   initializeSubscription(feedId: number, sourceId: number): boolean {
@@ -33,6 +35,9 @@ export class FeedIngestionService {
         sourceId,
         undefined,
         INITIAL_ARTICLE_LIMIT,
+      );
+      this.quotas.assertAccountStorage(
+        Number(this.sqlite.prepare("SELECT user_id FROM feeds WHERE id = ?").pluck().get(feedId)),
       );
       this.feeds.markSubscriptionInitialized(feedId, new Date().toISOString());
       this.rules.recomputeRulesForArticles(delivered);
@@ -73,6 +78,7 @@ export class FeedIngestionService {
         insertedArticleCount = stored.insertedArticleCount;
         for (const articleId of stored.changedArticleIds) changedArticleIds.add(articleId);
       }
+      this.quotas.assertSourceAccountsStorage(sourceId);
       const initializedAt = new Date().toISOString();
       for (const subscription of this.feeds.listSourceSubscriptions(sourceId)) {
         const delivered = this.articles.deliverSourceArticles(
@@ -81,6 +87,7 @@ export class FeedIngestionService {
           parsed,
           subscription.initialized ? undefined : INITIAL_ARTICLE_LIMIT,
         );
+        this.quotas.assertAccountStorage(subscription.userId);
         for (const articleId of delivered) changedArticleIds.add(articleId);
         this.feeds.markSubscriptionInitialized(subscription.feedId, initializedAt);
       }
@@ -90,6 +97,7 @@ export class FeedIngestionService {
         insertedArticleCount,
       });
       this.rules.recomputeRulesForArticles(changedArticleIds);
+      this.quotas.assertSourceAccountsStorage(sourceId);
       return true;
     })();
   }

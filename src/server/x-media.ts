@@ -1,4 +1,5 @@
 import { fetchPublic } from "./public-network.js";
+import type { QuotaService } from "./quota.js";
 
 const CACHE_TTL_MS = 60_000;
 const USER_AGENT = "feedfold/0.2 (+self-hosted feed reader)";
@@ -102,6 +103,7 @@ export class XMediaService {
   constructor(
     private readonly timeoutMs = 15_000,
     private readonly fetcher: PublicFetcher = fetchPublic,
+    private readonly quotas?: QuotaService,
   ) {}
 
   async mediaForPost(postId: string): Promise<XPostMedia> {
@@ -109,11 +111,13 @@ export class XMediaService {
     if (cached && cached.expiresAt > Date.now()) return cached.media;
     const token = xSyndicationToken(postId);
     const url = `https://cdn.syndication.twimg.com/tweet-result?id=${postId}&lang=en&token=${token}`;
-    const response = await this.fetcher(url, {
-      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-      redirect: "follow",
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    const fetchMedia = () =>
+      this.fetcher(url, {
+        headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+        redirect: "follow",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    const response = this.quotas ? await this.quotas.runOutbound(fetchMedia) : await fetchMedia();
     if (!response.ok) throw new Error(`X syndication returned HTTP ${response.status}`);
     const media = parseXPostMedia(await response.json());
     this.cache.set(postId, { expiresAt: Date.now() + CACHE_TTL_MS, media });
@@ -133,15 +137,17 @@ export class XMediaService {
     };
     armTimeout();
     try {
-      const response = await this.fetcher(media.url, {
-        headers: {
-          Accept: "video/mp4",
-          "User-Agent": USER_AGENT,
-          ...(range ? { Range: range } : {}),
-        },
-        redirect: "follow",
-        signal: controller.signal,
-      });
+      const fetchMedia = () =>
+        this.fetcher(media.url, {
+          headers: {
+            Accept: "video/mp4",
+            "User-Agent": USER_AGENT,
+            ...(range ? { Range: range } : {}),
+          },
+          redirect: "follow",
+          signal: controller.signal,
+        });
+      const response = this.quotas ? await this.quotas.runOutbound(fetchMedia) : await fetchMedia();
       if (!response.ok && response.status !== 416) {
         throw new Error(`X video returned HTTP ${response.status}`);
       }

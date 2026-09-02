@@ -15,6 +15,7 @@ import {
   publicProxyUrl,
   resolvePublicAddress,
 } from "./public-network.js";
+import { QuotaExceededError, type QuotaService } from "./quota.js";
 import { WebFeedError } from "./web-feed-error.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -40,6 +41,7 @@ export interface WebFeedBrowserLoaderOptions {
   maxResourceBytes?: number;
   maxElements?: number;
   maxRequests?: number;
+  quotas?: QuotaService;
 }
 
 export interface LoadedWebFeedPage {
@@ -447,6 +449,7 @@ export class WebFeedBrowserLoader {
   readonly #maxResourceBytes: number;
   readonly #maxElements: number;
   readonly #maxRequests: number;
+  readonly #quotas: QuotaService | undefined;
   #browserPromise: Promise<Browser> | null = null;
   #customPublicProxy: PinnedPublicProxy | null = null;
   #closed = false;
@@ -470,6 +473,7 @@ export class WebFeedBrowserLoader {
     this.#maxResourceBytes = finitePositive(options.maxResourceBytes, DEFAULT_MAX_RESOURCE_BYTES);
     this.#maxElements = finitePositive(options.maxElements, DEFAULT_MAX_ELEMENTS);
     this.#maxRequests = finitePositive(options.maxRequests, DEFAULT_MAX_REQUESTS);
+    this.#quotas = options.quotas;
   }
 
   async close(): Promise<void> {
@@ -553,12 +557,18 @@ export class WebFeedBrowserLoader {
     const browser = await this.#browser();
     let context: BrowserContext | null = null;
     let page: Page | null = null;
-    let fatalError: WebFeedError | null = null;
+    let fatalError: Error | null = null;
     let requestCount = 0;
     let declaredResourceBytes = 0;
     let transferredResourceBytes = 0;
     let contentRequestFailure: ContentRequestFailure | null = null;
     const pendingContentRequests = new Set<Request>();
+    const outboundRequests = new Map<Request, () => void>();
+    const releaseOutbound = (request: Request): void => {
+      const release = outboundRequests.get(request);
+      outboundRequests.delete(request);
+      release?.();
+    };
     const pendingRequestBinding = `__feedfoldPending${randomBytes(12).toString("hex")}`;
     try {
       context = await browser.newContext({
@@ -576,8 +586,12 @@ export class WebFeedBrowserLoader {
           pendingContentRequests.add(request);
         }
       });
-      page.on("requestfinished", (request) => pendingContentRequests.delete(request));
+      page.on("requestfinished", (request) => {
+        pendingContentRequests.delete(request);
+        releaseOutbound(request);
+      });
       page.on("requestfailed", (request) => {
+        releaseOutbound(request);
         if (CONTENT_REQUEST_TYPES.has(request.resourceType())) {
           pendingContentRequests.delete(request);
           contentRequestFailure ??= { kind: "network", httpStatus: null };
@@ -640,10 +654,16 @@ export class WebFeedBrowserLoader {
               validationCache,
               this.#addressResolver,
             );
+            const release = this.#quotas?.startOutboundRequest();
+            if (release) outboundRequests.set(request, release);
           }
           await route.continue();
         } catch (error) {
-          if (request.isNavigationRequest() && request.frame() === page?.mainFrame()) {
+          releaseOutbound(request);
+          if (error instanceof QuotaExceededError) {
+            fatalError = error;
+            void page?.close();
+          } else if (request.isNavigationRequest() && request.frame() === page?.mainFrame()) {
             fatalError = browserFailure(error);
           }
           await route.abort("blockedbyclient");
@@ -658,6 +678,8 @@ export class WebFeedBrowserLoader {
             validationCache,
             this.#addressResolver,
           );
+          const release = this.#quotas?.startOutboundRequest();
+          release?.();
           socket.connectToServer();
         } catch {
           await socket.close({ code: 1008, reason: "Private network connections are blocked" });
@@ -822,8 +844,11 @@ export class WebFeedBrowserLoader {
       };
     } catch (error) {
       if (fatalError) throw fatalError;
+      if (error instanceof QuotaExceededError) throw error;
       throw browserFailure(error);
     } finally {
+      for (const release of outboundRequests.values()) release();
+      outboundRequests.clear();
       await context?.close().catch(() => undefined);
     }
   }

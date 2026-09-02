@@ -300,7 +300,7 @@ export class FeedRepository {
   getUserRefreshFeedIds(userId: number, requestedIds?: number[]): number[] {
     if (requestedIds?.length === 0) return [];
     const selected = requestedIds
-      ? `AND id IN (${requestedIds.map(() => "?").join(", ")})`
+      ? `AND paused = 0 AND id IN (${requestedIds.map(() => "?").join(", ")})`
       : "AND paused = 0";
     return (
       this.sqlite

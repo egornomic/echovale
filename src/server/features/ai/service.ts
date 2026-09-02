@@ -206,12 +206,14 @@ export class AiService {
         "The server cannot decrypt saved API keys. Set AI_CREDENTIALS_KEY, then restart feedfold.",
       );
     }
-    const result = await provider.generateText({
-      apiKey: cipher.decrypt(userId, providerId, encryptedKey),
-      model,
-      ...request,
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
-    });
+    const result = await this.database.quotas.runOutbound(() =>
+      provider.generateText({
+        apiKey: cipher.decrypt(userId, providerId, encryptedKey),
+        model,
+        ...request,
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      }),
+    );
     return { ...result, provider: providerId, model };
   }
 

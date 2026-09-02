@@ -106,4 +106,23 @@ Compose reads these values from the shell or a project-level `.env` file:
 | `AI_CREDENTIALS_KEY` | none | Persistent 64-character hexadecimal key used to encrypt provider API keys. AI key storage remains unavailable until this is set. |
 | `AI_REQUEST_TIMEOUT_MS` | `60000` | AI provider request timeout, in milliseconds. |
 
+Public mode also accepts these server-side quota overrides. Private mode leaves them unlimited.
+
+| Variable | Default | Scope |
+| --- | ---: | --- |
+| `FEEDFOLD_QUOTA_FEED_DISCOVERIES_PER_DAY` | `100` | Per account, per UTC day |
+| `FEEDFOLD_QUOTA_WEB_ANALYSES_PER_DAY` | `20` | Per account, per UTC day |
+| `FEEDFOLD_QUOTA_CHROMIUM_CONCURRENT` | `2` | Whole server |
+| `FEEDFOLD_QUOTA_ARTICLE_EXTRACTIONS_PER_DAY` | `200` | Per account, per UTC day |
+| `FEEDFOLD_QUOTA_ARTICLE_EXTRACTIONS_CONCURRENT` | `4` | Whole server |
+| `FEEDFOLD_QUOTA_MEDIA_PROXY_REQUESTS_PER_DAY` | `1000` | Per account, per UTC day |
+| `FEEDFOLD_QUOTA_OPML_UPLOAD_BYTES` | `1048576` | Per import |
+| `FEEDFOLD_QUOTA_OPML_FEEDS_PER_IMPORT` | `300` | Per import |
+| `FEEDFOLD_QUOTA_ARTICLES_PER_ACCOUNT` | `50000` | Per account |
+| `FEEDFOLD_QUOTA_STORED_BYTES_PER_ACCOUNT` | `536870912` | Per account |
+| `FEEDFOLD_QUOTA_OUTBOUND_REQUESTS_CONCURRENT` | `20` | Whole server |
+| `FEEDFOLD_QUOTA_OUTBOUND_REQUESTS_PER_DAY` | `50000` | Whole server, per UTC day |
+| `FEEDFOLD_QUOTA_REGISTERED_ACCOUNTS` | `1000` | Whole server |
+| `FEEDFOLD_QUOTA_GLOBAL_STORED_BYTES` | `21474836480` | Whole server |
+
 The container fixes its internal runtime settings to `HOST=0.0.0.0`, `PORT=3000`, and `DATABASE_PATH=/data/feedfold.db`. For a non-container deployment, `.env.example` lists every server setting.

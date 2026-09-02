@@ -1355,6 +1355,25 @@ const migrations: Migration[] = [
       INSERT INTO auth_secrets (name, value) VALUES ('limiter-hmac', randomblob(32));
     `,
   },
+  {
+    sql: `
+      CREATE TABLE quota_daily_usage (
+        scope TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        day TEXT NOT NULL,
+        count INTEGER NOT NULL CHECK(count >= 0),
+        PRIMARY KEY(scope, resource, day)
+      );
+
+      CREATE TABLE quota_leases (
+        id TEXT PRIMARY KEY,
+        resource TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX quota_leases_resource_expiry_idx
+        ON quota_leases(resource, expires_at);
+    `,
+  },
 ];
 
 export function migrateDatabase(

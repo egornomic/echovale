@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { WebFeedConfig } from "../../../shared/types.js";
 import { discoverFeed, FeedDiscoveryError } from "../../feed-discovery.js";
+import type { QuotaService } from "../../quota.js";
 import type { FeedRefreshService } from "../../refresh.js";
 import { WebFeedError, type WebFeedService } from "../../web-feed.js";
 import { httpUrl, idParams, missing, nullableId, type UserId } from "../routes.js";
@@ -32,12 +33,14 @@ export async function feedRoutes(
     refreshService,
     webFeedService,
     feedDiscoveryTimeoutMs,
+    quotas,
     userId,
   }: {
     feeds: FeedService;
     refreshService: FeedRefreshService;
     webFeedService?: WebFeedService;
     feedDiscoveryTimeoutMs?: number;
+    quotas: QuotaService;
     userId: UserId;
   },
 ): Promise<void> {
@@ -54,7 +57,11 @@ export async function feedRoutes(
   app.post("/api/feeds/discover", async (request, reply) => {
     const { url } = z.object({ url: httpUrl }).parse(request.body);
     try {
-      return await discoverFeed(url, feedDiscoveryTimeoutMs);
+      const accountId = userId(request);
+      quotas.consume("feed_discovery", accountId);
+      return await discoverFeed(url, feedDiscoveryTimeoutMs, undefined, (task) =>
+        feeds.runOutbound(task),
+      );
     } catch (error) {
       if (error instanceof FeedDiscoveryError) {
         return reply.code(422).send({ error: error.message, code: error.kind });
@@ -217,7 +224,8 @@ export async function feedRoutes(
 
   app.post("/api/feeds/:id/refresh", async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    if (!feeds.getFeed(userId(request), id)) return missing(reply, "Feed");
-    return refreshService.request([id]);
+    const accountId = userId(request);
+    if (!feeds.getFeed(accountId, id)) return missing(reply, "Feed");
+    return refreshService.request(feeds.getManualRefreshFeedIds(accountId, [id]));
   });
 }

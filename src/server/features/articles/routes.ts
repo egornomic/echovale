@@ -11,6 +11,7 @@ import type {
 import { MARK_READ_AGE_DAYS } from "../../../shared/types.js";
 import { nitterVideoPostId } from "../../../shared/x.js";
 import type { ExtractionQueue } from "../../extraction.js";
+import { QuotaExceededError, type QuotaService } from "../../quota.js";
 import type { TelegramMediaService } from "../../telegram-media.js";
 import type { XMediaService } from "../../x-media.js";
 import type { AiService } from "../ai/service.js";
@@ -35,6 +36,7 @@ export async function articleRoutes(
     ai,
     telegramMedia,
     xMedia,
+    quotas,
     userId,
   }: {
     articles: ArticleRepository;
@@ -43,6 +45,7 @@ export async function articleRoutes(
     ai: AiService;
     telegramMedia: TelegramMediaService;
     xMedia: XMediaService;
+    quotas: QuotaService;
     userId: UserId;
   },
 ): Promise<void> {
@@ -56,9 +59,11 @@ export async function articleRoutes(
       missing(reply, "Telegram media");
       return null;
     }
+    quotas.consume("media_proxy", accountId);
     try {
       return await telegramMedia.mediaForPost(article.url);
-    } catch {
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
       reply.code(502).send({ error: "Telegram media is temporarily unavailable. Try again." });
       return null;
     }
@@ -71,9 +76,11 @@ export async function articleRoutes(
       missing(reply, "X video");
       return null;
     }
+    quotas.consume("media_proxy", accountId);
     try {
       return await xMedia.mediaForPost(postId);
-    } catch {
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
       reply.code(502).send({ error: "X video is temporarily unavailable. Try again." });
       return null;
     }
@@ -182,7 +189,8 @@ export async function articleRoutes(
       );
       stream.once("close", cancel);
       return reply.send(stream);
-    } catch {
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
       return reply.code(502).send({ error: "X video is temporarily unavailable. Try again." });
     }
   });

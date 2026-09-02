@@ -309,7 +309,7 @@ export class ApplicationApi {
           request.payload ?? {},
         );
         return this.#refreshService.request(
-          this.#database.feeds.getUserRefreshFeedIds(this.#userId, body.feedIds),
+          this.#database.feeds.getManualRefreshFeedIds(this.#userId, body.feedIds),
         );
       }
       case "discoverFeed": {

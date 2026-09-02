@@ -1,7 +1,8 @@
 import type Sqlite from "better-sqlite3";
 import type { Feed, WebFeedConfig } from "../../../shared/types.js";
 import type { DeploymentPolicy } from "../../deployment-policy.js";
-import { InvalidRequestError } from "../../errors.js";
+import { InvalidRequestError, OperationForbiddenError } from "../../errors.js";
+import type { QuotaService } from "../../quota.js";
 import type { ArticleRepository } from "../articles/repository.js";
 import type { FolderRepository } from "../folders/repository.js";
 import type { RuleRepository } from "../rules/repository.js";
@@ -19,8 +20,9 @@ export class FeedService {
     private readonly articles: ArticleRepository,
     private readonly rules: RuleRepository,
     private readonly deploymentPolicy: DeploymentPolicy,
+    private readonly quotas: QuotaService,
   ) {
-    this.ingestion = new FeedIngestionService(sqlite, repository, articles, rules);
+    this.ingestion = new FeedIngestionService(sqlite, repository, articles, rules, this.quotas);
   }
 
   listFeeds(userId: number): Feed[] {
@@ -46,8 +48,21 @@ export class FeedService {
     return this.deploymentPolicy.maxPendingRefreshes;
   }
 
-  manualRefreshEnabled(): boolean {
-    return this.deploymentPolicy.manualRefresh;
+  getManualRefreshFeedIds(userId: number, requestedIds?: number[]): number[] {
+    if (!this.deploymentPolicy.manualRefresh) {
+      throw new OperationForbiddenError("Manual refresh is unavailable.");
+    }
+    if (requestedIds) {
+      const paused = requestedIds.some((id) => this.repository.getFeed(userId, id)?.paused);
+      if (paused) {
+        throw new InvalidRequestError("Resume paused feeds before refreshing them.");
+      }
+    }
+    return this.repository.getUserRefreshFeedIds(userId, requestedIds);
+  }
+
+  runOutbound<T>(task: () => Promise<T>): Promise<T> {
+    return this.quotas.runOutbound(task);
   }
 
   createFeed(

@@ -184,8 +184,22 @@ export class ExtractionQueue {
   private async process(articleId: number): Promise<void> {
     const record = this.extractions.getExtractionRecord(articleId);
     if (!record || !this.extractions.markExtractionProcessing(articleId)) return;
-    const outcome = await extractArticle(record, this.timeoutMs, this.fetcher);
-    this.extractions.completeExtraction(articleId, outcome);
+    try {
+      await this.extractions.runExtraction(async () => {
+        const outcome = await extractArticle(record, this.timeoutMs, (url, options) =>
+          this.extractions.runOutbound(() => this.fetcher(url, options)),
+        );
+        this.extractions.completeExtraction(articleId, outcome);
+      });
+    } catch (error) {
+      this.extractions.completeExtraction(articleId, {
+        contentHtml: null,
+        imageUrl: null,
+        contentSource: null,
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private refill(): void {

@@ -665,7 +665,7 @@ Return only the summary in plain text.`,
         sortDirection: "newest",
       });
       expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        40,
+        41,
       );
       expect(
         database.connection.prepare("SELECT last_active_at FROM users WHERE id = 1").pluck().get(),
@@ -724,7 +724,7 @@ Return only the summary in plain text.`,
         username: "reader",
       });
       expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        40,
+        41,
       );
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),

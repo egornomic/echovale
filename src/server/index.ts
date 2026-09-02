@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 import { CredentialCipher } from "./ai/credential-cipher.js";
 import { createApp } from "./app.js";
 import { AppDatabase } from "./database.js";
-import { deploymentPolicy, registrationAccountCap } from "./deployment-policy.js";
+import {
+  deploymentPolicy,
+  type ResourceQuotas,
+  registrationAccountCap,
+} from "./deployment-policy.js";
 import { ExtractionQueue } from "./extraction.js";
 import { AiService } from "./features/ai/service.js";
 import { AuthService } from "./features/auth/service.js";
@@ -19,6 +23,29 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   if (!Number.isInteger(parsed) || parsed <= 0)
     throw new Error(`${name} must be a positive integer`);
   return parsed;
+}
+
+function quotaOverrides(environment: NodeJS.ProcessEnv): Partial<ResourceQuotas> {
+  const overrides: Partial<ResourceQuotas> = {};
+  const read = (key: keyof ResourceQuotas, name: string): void => {
+    const value = environment[name];
+    if (value !== undefined) overrides[key] = positiveInteger(value, 1, name);
+  };
+  read("feedDiscoveriesPerDay", "FEEDFOLD_QUOTA_FEED_DISCOVERIES_PER_DAY");
+  read("webAnalysesPerDay", "FEEDFOLD_QUOTA_WEB_ANALYSES_PER_DAY");
+  read("chromiumConcurrent", "FEEDFOLD_QUOTA_CHROMIUM_CONCURRENT");
+  read("articleExtractionsPerDay", "FEEDFOLD_QUOTA_ARTICLE_EXTRACTIONS_PER_DAY");
+  read("articleExtractionsConcurrent", "FEEDFOLD_QUOTA_ARTICLE_EXTRACTIONS_CONCURRENT");
+  read("mediaProxyRequestsPerDay", "FEEDFOLD_QUOTA_MEDIA_PROXY_REQUESTS_PER_DAY");
+  read("opmlUploadBytes", "FEEDFOLD_QUOTA_OPML_UPLOAD_BYTES");
+  read("opmlFeedsPerImport", "FEEDFOLD_QUOTA_OPML_FEEDS_PER_IMPORT");
+  read("articlesPerAccount", "FEEDFOLD_QUOTA_ARTICLES_PER_ACCOUNT");
+  read("storedBytesPerAccount", "FEEDFOLD_QUOTA_STORED_BYTES_PER_ACCOUNT");
+  read("outboundRequestsConcurrent", "FEEDFOLD_QUOTA_OUTBOUND_REQUESTS_CONCURRENT");
+  read("outboundRequestsPerDay", "FEEDFOLD_QUOTA_OUTBOUND_REQUESTS_PER_DAY");
+  read("registeredAccounts", "FEEDFOLD_QUOTA_REGISTERED_ACCOUNTS");
+  read("globalStoredBytes", "FEEDFOLD_QUOTA_GLOBAL_STORED_BYTES");
+  return overrides;
 }
 
 function configuredPublicOrigin(value: string | undefined): string | undefined {
@@ -76,7 +103,7 @@ const aiRequestTimeoutMs = positiveInteger(
 );
 const staticDir = fileURLToPath(new URL("../client", import.meta.url));
 const publicOrigin = configuredPublicOrigin(process.env.FEEDFOLD_PUBLIC_ORIGIN);
-const policy = deploymentPolicy(process.env.FEEDFOLD_DEPLOYMENT_MODE);
+const policy = deploymentPolicy(process.env.FEEDFOLD_DEPLOYMENT_MODE, quotaOverrides(process.env));
 const registrationCooldownMinutes = positiveInteger(
   process.env.FEEDFOLD_REGISTRATION_COOLDOWN_MINUTES,
   60,
@@ -138,7 +165,10 @@ const authService = new AuthService(database.auth, pollIntervalMinutes, {
   },
 });
 const extractionQueue = new ExtractionQueue(database.extractions, 2, articleFetchTimeoutMs);
-const webFeedService = new WebFeedService({ timeoutMs: webFeedLoadTimeoutMs });
+const webFeedService = new WebFeedService({
+  timeoutMs: webFeedLoadTimeoutMs,
+  quotas: database.quotas,
+});
 const refreshService = new FeedRefreshService(
   database.feeds,
   3,

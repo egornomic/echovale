@@ -17,6 +17,7 @@ import { SettingsRepository } from "./features/settings/repository.js";
 import { SettingsService } from "./features/settings/service.js";
 import { WEB_FEED_POLL_INTERVAL_MINUTES } from "./features/shared.js";
 import { migrateDatabase } from "./migrations.js";
+import { QuotaService } from "./quota.js";
 
 export type { ParsedArticle, ParsedFeed } from "./features/shared.js";
 
@@ -34,6 +35,7 @@ export class AppDatabase {
   readonly rules: RuleRepository;
   readonly settings: SettingsService;
   readonly deploymentPolicy: DeploymentPolicy;
+  readonly quotas: QuotaService;
 
   constructor(
     path: string,
@@ -50,6 +52,7 @@ export class AppDatabase {
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settings'")
         .get() === undefined;
     migrateDatabase(this.connection, WEB_FEED_POLL_INTERVAL_MINUTES);
+    this.quotas = new QuotaService(this.connection, deploymentPolicy);
     if (this.wasNewDatabase && defaultPollIntervalMinutes !== 20) {
       this.connection
         .prepare("UPDATE settings SET poll_interval_minutes = ? WHERE user_id = 1")
@@ -64,7 +67,7 @@ export class AppDatabase {
 
     this.ai = new AiRepository(this.connection);
     this.articles = new ArticleRepository(this.connection);
-    this.auth = new AuthRepository(this.connection);
+    this.auth = new AuthRepository(this.connection, this.quotas);
     this.rules = new RuleRepository(this.connection);
     const settingsRepository = new SettingsRepository(this.connection);
     this.settings = new SettingsService(this.connection, settingsRepository, this.ai);
@@ -84,8 +87,14 @@ export class AppDatabase {
       this.articles,
       this.rules,
       deploymentPolicy,
+      this.quotas,
     );
-    this.extractions = new ExtractionService(this.connection, extractionRepository, this.rules);
+    this.extractions = new ExtractionService(
+      this.connection,
+      extractionRepository,
+      this.rules,
+      this.quotas,
+    );
     this.bootstrap = new BootstrapService(
       this.articles,
       this.feeds,
@@ -93,7 +102,7 @@ export class AppDatabase {
       this.settings,
       deploymentPolicy,
     );
-    this.opml = new OpmlService(this.feeds, this.folders);
+    this.opml = new OpmlService(this.feeds, this.folders, this.quotas);
   }
 
   close(): void {

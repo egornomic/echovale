@@ -4,6 +4,7 @@ import {
   DEFAULT_ARTICLE_TRANSLATION_PROMPT,
   DEFAULT_CUSTOM_PROMPTS,
 } from "../../../shared/ai-prompts.js";
+import type { QuotaService } from "../../quota.js";
 
 const LEGACY_OWNER = "__legacy_owner__";
 
@@ -86,7 +87,10 @@ function booleanRow<T extends { hasPassword: number }>(
 }
 
 export class AuthRepository {
-  constructor(private readonly sqlite: Sqlite.Database) {}
+  constructor(
+    private readonly sqlite: Sqlite.Database,
+    private readonly quotas: QuotaService,
+  ) {}
 
   authHashSecret(): Buffer {
     return this.sqlite
@@ -102,12 +106,17 @@ export class AuthRepository {
   }
 
   registrationAvailable(maxAccounts: number): boolean {
+    if (!this.quotas.canRegisterAccount()) return false;
     if (maxAccounts <= 0) return false;
     const count = this.sqlite
       .prepare("SELECT COUNT(*) FROM users WHERE enabled = 1")
       .pluck()
       .get() as number;
     return count < maxAccounts;
+  }
+
+  registrationQuotaReached(): boolean {
+    return !this.quotas.canRegisterAccount();
   }
 
   private createDefaultSettings(userId: number, pollIntervalMinutes: number): void {
@@ -203,6 +212,7 @@ export class AuthRepository {
     maxAccounts: number,
   ): StoredUser | null {
     const register = this.sqlite.transaction(() => {
+      this.quotas.assertCanRegisterAccount();
       if (!this.registrationAvailable(maxAccounts)) return null;
       if (
         this.sqlite.prepare("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE").get(username)
@@ -219,6 +229,7 @@ export class AuthRepository {
         session.createdAt,
       );
       this.insertSession(user.id, session);
+      this.quotas.assertGlobalStorage();
       return user;
     });
     return register.immediate();
@@ -282,6 +293,7 @@ export class AuthRepository {
     at: string,
   ): StoredUser | null {
     const complete = this.sqlite.transaction(() => {
+      this.quotas.assertCanRegisterAccount();
       const pending = this.pendingRegistration(idHash, at);
       this.sqlite.prepare("DELETE FROM pending_registrations WHERE id_hash = ?").run(idHash);
       if (!pending || !this.registrationAvailable(maxAccounts)) return null;
@@ -304,6 +316,7 @@ export class AuthRepository {
       );
       this.insertPasskey({ ...passkey, userId: user.id, username: user.username });
       this.insertSession(user.id, session);
+      this.quotas.assertGlobalStorage();
       return user;
     });
     return complete.immediate();

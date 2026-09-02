@@ -11,7 +11,7 @@ import Fastify, {
 import { ZodError } from "zod";
 import { AiError } from "./ai/errors.js";
 import type { AppDatabase } from "./database.js";
-import { InvalidRequestError } from "./errors.js";
+import { InvalidRequestError, OperationForbiddenError } from "./errors.js";
 import type { ExtractionQueue } from "./extraction.js";
 import { aiRoutes } from "./features/ai/routes.js";
 import { AiService } from "./features/ai/service.js";
@@ -26,6 +26,7 @@ import { refreshRoutes } from "./features/refresh/routes.js";
 import { ruleRoutes } from "./features/rules/routes.js";
 import { settingsRoutes } from "./features/settings/routes.js";
 import { registerOperationalLogging } from "./logging.js";
+import { QuotaExceededError } from "./quota.js";
 import type { FeedRefreshService } from "./refresh.js";
 import { TelegramMediaService } from "./telegram-media.js";
 import { WebFeedError, type WebFeedService } from "./web-feed.js";
@@ -61,9 +62,18 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
     });
   const telegramMedia =
     services.telegramMediaService ??
-    new TelegramMediaService(services.feedDiscoveryTimeoutMs ?? 15_000);
+    new TelegramMediaService(
+      services.feedDiscoveryTimeoutMs ?? 15_000,
+      undefined,
+      services.database.quotas,
+    );
   const xMedia =
-    services.xMediaService ?? new XMediaService(services.feedDiscoveryTimeoutMs ?? 15_000);
+    services.xMediaService ??
+    new XMediaService(
+      services.feedDiscoveryTimeoutMs ?? 15_000,
+      undefined,
+      services.database.quotas,
+    );
   const requestUsers = new WeakMap<FastifyRequest, { id: number; username: string }>();
   const userId = (request: FastifyRequest): number => {
     const user = requestUsers.get(request);
@@ -88,7 +98,22 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
       reply.code(400).send({ error: error.message });
       return;
     }
+    if (error instanceof OperationForbiddenError) {
+      reply.code(error.statusCode).send({ error: error.message });
+      return;
+    }
+    if (error instanceof QuotaExceededError) {
+      reply.code(error.statusCode).send({ error: error.message, code: error.code });
+      return;
+    }
     if (error instanceof SqliteError) {
+      if (error.code === "SQLITE_FULL") {
+        reply.code(507).send({
+          error: "This feedfold server has reached its storage limit.",
+          code: "quota_exceeded",
+        });
+        return;
+      }
       if (
         error.code === "SQLITE_CONSTRAINT_UNIQUE" ||
         error.code === "SQLITE_CONSTRAINT_PRIMARYKEY"
@@ -209,6 +234,7 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
     ai,
     telegramMedia,
     xMedia,
+    quotas: services.database.quotas,
     userId,
   });
   await app.register(feedRoutes, {
@@ -216,6 +242,7 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
     refreshService: services.refreshService,
     webFeedService: services.webFeedService,
     feedDiscoveryTimeoutMs: services.feedDiscoveryTimeoutMs,
+    quotas: services.database.quotas,
     userId,
   });
   await app.register(folderRoutes, { folders: services.database.folders, userId });

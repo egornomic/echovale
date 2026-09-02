@@ -1,6 +1,7 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { QuotaExceededError } from "../../quota.js";
 import { type AuthService, type LoginSession, sessionToken } from "./service.js";
 
 const username = z
@@ -93,6 +94,15 @@ function limited(reply: FastifyReply, retryAfter: number | null): FastifyReply |
     .send({ error: "Too many attempts. Try again when the cooldown ends." });
 }
 
+function registrationClosed(reply: FastifyReply, authService: AuthService): FastifyReply {
+  return authService.registrationQuotaReached()
+    ? reply.code(429).send({
+        error: "This feedfold server is not accepting more accounts.",
+        code: "quota_exceeded",
+      })
+    : reply.code(403).send({ error: "Account creation is closed on this server." });
+}
+
 function authenticatedUser(request: FastifyRequest, authService: AuthService) {
   return authService.userForToken(sessionToken(request.headers.cookie));
 }
@@ -120,12 +130,10 @@ export async function authRoutes(
     const rateLimited = limited(reply, authService.consumeRegistrationAttempt(request.ip));
     if (rateLimited) return rateLimited;
     const body = registrationCredentials.parse(request.body);
-    if (!authService.registrationAvailable())
-      return reply.code(403).send({ error: "Account creation is closed on this server." });
+    if (!authService.registrationAvailable()) return registrationClosed(reply, authService);
     const session = await authService.register(body.username, body.password);
     if (!session) {
-      if (!authService.registrationAvailable())
-        return reply.code(403).send({ error: "Account creation is closed on this server." });
+      if (!authService.registrationAvailable()) return registrationClosed(reply, authService);
       return reply
         .code(409)
         .send({ error: "The account could not be created. Choose another name or try again." });
@@ -140,12 +148,10 @@ export async function authRoutes(
     const context = webAuthnContext(request, configuredOrigin);
     if (!passkeysAvailable(new URL(context.origin)))
       return reply.code(400).send({ error: "Passkeys require HTTPS or localhost." });
-    if (!authService.registrationAvailable())
-      return reply.code(403).send({ error: "Account creation is closed on this server." });
+    if (!authService.registrationAvailable()) return registrationClosed(reply, authService);
     const result = await authService.passkeySignupOptions(body.username, context);
     if (!result) {
-      if (!authService.registrationAvailable())
-        return reply.code(403).send({ error: "Account creation is closed on this server." });
+      if (!authService.registrationAvailable()) return registrationClosed(reply, authService);
       return reply
         .code(409)
         .send({ error: "The account could not be created. Choose another name or try again." });
@@ -161,12 +167,12 @@ export async function authRoutes(
         body.response as unknown as RegistrationResponseJSON,
       );
       if (!session) {
-        if (!authService.registrationAvailable())
-          return reply.code(403).send({ error: "Account creation is closed on this server." });
+        if (!authService.registrationAvailable()) return registrationClosed(reply, authService);
         throw new Error("Passkey signup failed");
       }
       return sendSession(reply.code(201), request, authService, session, configuredOrigin);
-    } catch {
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
       return reply.code(400).send({ error: "The account could not be created. Try again." });
     }
   });
