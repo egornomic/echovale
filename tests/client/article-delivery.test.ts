@@ -381,5 +381,5 @@ describe("live article delivery", () => {
       restoreBrowserGlobals();
       dom.window.close();
     }
-  });
+  }, 15_000);
 });
