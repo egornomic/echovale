@@ -45,6 +45,73 @@
   margin-left: auto;
 }
 
+.management-tabs-shell {
+  position: sticky;
+  top: 90px;
+  z-index: 4;
+  margin-inline: -34px;
+  padding-inline: 34px;
+  border-bottom: 1px solid var(--border);
+  background: var(--paper-canvas-translucent);
+  background-blend-mode: var(--paper-blend);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+.management-tabs {
+  display: flex;
+  max-width: 1180px;
+  align-items: center;
+  gap: 22px;
+  margin-inline: auto;
+}
+
+.management-tabs button {
+  position: relative;
+  display: inline-flex;
+  min-height: 43px;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 7px 1px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--type-supporting);
+  font-weight: var(--weight-semibold);
+  transition:
+    color var(--duration-fast) ease,
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.management-tabs button::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.management-tabs button[aria-selected="true"] {
+  color: var(--text);
+}
+
+.management-tabs button[aria-selected="true"]::after {
+  background: var(--accent);
+}
+
+.management-tabs button:active:not(:focus-visible) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .management-tabs button:hover {
+    color: var(--text);
+  }
+}
+
 .management-section,
 .settings-section {
   max-width: 1180px;
@@ -440,11 +507,44 @@
     font-size: var(--type-supporting);
     white-space: nowrap;
   }
+
+  .management-tabs-shell {
+    top: 56px;
+    margin-top: 0;
+    margin-inline: -13px;
+    padding-inline: 13px;
+  }
+
+  .management-tabs {
+    gap: 20px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .management-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .management-tabs button {
+    min-height: 44px;
+    scroll-snap-align: start;
+  }
 }
 
 @media (max-width: 370px) {
   .page-header-actions :is(.secondary-button, .primary-button) svg {
     display: none;
+  }
+}
+
+@media (max-width: 440px) {
+  .management-tabs {
+    gap: 15px;
+  }
+
+  .management-tabs button {
+    gap: 5px;
   }
 }
 
@@ -457,7 +557,6 @@
     column-gap: 12px;
     row-gap: 0;
     padding-block: 0;
-    transition: padding-left var(--duration-surface) var(--ease-in-out);
   }
 
   .app-shell.is-management-view .page-header-copy {
@@ -489,8 +588,11 @@
   }
 }
 
-@media (min-width: 1021px) and (prefers-reduced-motion: reduce) {
-  .app-shell.is-management-view .page-header {
-    transition-duration: 0s;
+@media (prefers-reduced-transparency: reduce) {
+  .management-tabs-shell {
+    background: var(--paper-canvas);
+    background-blend-mode: var(--paper-blend);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }

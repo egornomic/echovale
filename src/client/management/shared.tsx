@@ -1,5 +1,11 @@
 import { Download, LoaderCircle, Menu, Upload } from "lucide-react";
-import { type ChangeEvent, type ReactNode, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useRef,
+  useState,
+} from "react";
 import { api, appUrl, errorMessage } from "../api";
 import type { ReaderDataMutations } from "../data-resource";
 import { isDesktopApp } from "../desktop";
@@ -37,6 +43,25 @@ export function formatRefreshInterval(minutes: number): string {
 
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd>{children}</kbd>;
+}
+
+export function handleTabListKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+  const currentIndex = tabs.indexOf(document.activeElement as HTMLButtonElement);
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : event.key === "ArrowRight"
+          ? (Math.max(currentIndex, 0) + 1) % tabs.length
+          : (currentIndex <= 0 ? tabs.length : currentIndex) - 1;
+
+  event.preventDefault();
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
 }
 
 export function PageHeader({

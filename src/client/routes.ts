@@ -19,10 +19,17 @@ interface AddFeedRoute {
 }
 
 interface ManagementRoute {
-  kind: "feeds" | "rules" | "settings";
+  kind: "feeds" | "rules";
 }
 
-export type AppRoute = ReaderRoute | ArticleRoute | AddFeedRoute | ManagementRoute;
+export type SettingsCategory = "appearance" | "reading" | "feeds" | "ai" | "account";
+
+interface SettingsRoute {
+  kind: "settings";
+  category: SettingsCategory;
+}
+
+export type AppRoute = ReaderRoute | ArticleRoute | AddFeedRoute | ManagementRoute | SettingsRoute;
 
 export const DEFAULT_READER_ROUTE: ReaderRoute = {
   kind: "reader",
@@ -83,9 +90,24 @@ export function parseAppRoute(pathname: string, search: string, basePath: string
     }
   }
 
+  if (segments[0] === "settings") {
+    if (segments.length === 1) return { kind: "settings", category: "appearance" };
+    const category = segments[1];
+    if (
+      segments.length === 2 &&
+      (category === "appearance" ||
+        category === "reading" ||
+        category === "feeds" ||
+        category === "ai" ||
+        category === "account")
+    ) {
+      return { kind: "settings", category };
+    }
+  }
+
   if (segments.length === 1) {
     const [page] = segments;
-    if (page === "feeds" || page === "rules" || page === "settings") return { kind: page };
+    if (page === "feeds" || page === "rules") return { kind: page };
   }
 
   if (segments[0] === "articles" && segments.length === 2) {
@@ -110,6 +132,9 @@ export function appRoutePath(route: AppRoute): string {
   if (route.kind === "article") return `/articles/${route.articleId}`;
   if (route.kind === "add-feed") {
     return route.sourceUrl ? `/feeds/add/${encodeURIComponent(route.sourceUrl)}` : "/feeds/add";
+  }
+  if (route.kind === "settings") {
+    return route.category === "appearance" ? "/settings" : `/settings/${route.category}`;
   }
   if (route.kind !== "reader") return `/${route.kind}`;
 

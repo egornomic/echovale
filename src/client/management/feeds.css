@@ -11,63 +11,6 @@
   gap: 7px;
 }
 
-.management-tabs-shell {
-  position: sticky;
-  top: 90px;
-  z-index: 4;
-  margin-inline: -34px;
-  padding-inline: 34px;
-  border-bottom: 1px solid var(--border);
-  background: var(--paper-canvas-translucent);
-  background-blend-mode: var(--paper-blend);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
-  backdrop-filter: blur(14px) saturate(120%);
-}
-
-.management-tabs {
-  display: flex;
-  max-width: 1180px;
-  align-items: center;
-  gap: 22px;
-  margin-inline: auto;
-}
-
-.management-tabs button {
-  position: relative;
-  display: inline-flex;
-  min-height: 43px;
-  align-items: center;
-  gap: 7px;
-  flex: 0 0 auto;
-  padding: 7px 1px 9px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--type-supporting);
-  font-weight: var(--weight-semibold);
-  transition:
-    color var(--duration-fast) ease,
-    transform var(--duration-fast) var(--ease-out);
-}
-
-.management-tabs button::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  background: transparent;
-  content: "";
-}
-
-.management-tabs button[aria-selected="true"] {
-  color: var(--text);
-}
-
-.management-tabs button[aria-selected="true"]::after {
-  background: var(--accent);
-}
-
 .management-tab-count,
 .filter-count {
   display: inline-flex;
@@ -88,10 +31,6 @@
 .feed-filter-toggle.has-active-filters .filter-count {
   background: var(--accent-surface);
   color: var(--accent);
-}
-
-.management-tabs button:active:not(:focus-visible) {
-  transform: scale(0.97);
 }
 
 .feed-management-section,
@@ -1233,10 +1172,6 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .management-tabs button:hover {
-    color: var(--text);
-  }
-
   .feed-management-row:hover,
   .folder-management-row:hover:not(.is-feed-drop-target),
   .folder-feed-row:hover {
@@ -1514,21 +1449,6 @@
     display: block;
   }
 
-  .feeds-management-page .management-tabs-shell {
-    top: 56px;
-    margin-top: 0;
-    margin-inline: -13px;
-    padding-inline: 13px;
-  }
-
-  .management-tabs {
-    gap: 20px;
-  }
-
-  .management-tabs button {
-    min-height: 44px;
-  }
-
   .feed-management-section,
   .folder-management-section {
     margin-top: 9px;
@@ -1736,14 +1656,6 @@
 }
 
 @media (max-width: 440px) {
-  .management-tabs {
-    gap: 15px;
-  }
-
-  .management-tabs button {
-    gap: 5px;
-  }
-
   .feed-filter-toggle {
     padding-inline: 10px;
   }
@@ -1812,7 +1724,6 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .feeds-management-page .page-header,
-  .management-tabs-shell,
   .management-actions-popover {
     background: var(--paper-canvas);
     background-blend-mode: var(--paper-blend);

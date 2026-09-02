@@ -95,6 +95,9 @@ export class DemoStore {
         starred: this.data.articles.filter((article) => article.isStarred).length,
         all: this.data.articles.length,
       },
+      capabilities: {
+        manualRefresh: true,
+      },
     });
   }
 
@@ -464,6 +467,10 @@ export class DemoStore {
       case "login":
       case "register":
         return { user: this.session() };
+      case "authConfig":
+        return { registrationAvailable: false, passkeysAvailable: false };
+      case "passkeys":
+        return { passkeys: [], hasPassword: false };
       case "logout":
       case "deleteAccount":
         return undefined;

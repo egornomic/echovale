@@ -19,7 +19,11 @@ describe("application routes", () => {
       "/feeds/add/https%3A%2F%2Fexample.com%2Ffeed.xml%3Fformat%3Drss%23latest",
     ],
     [{ kind: "rules" }, "/rules"],
-    [{ kind: "settings" }, "/settings"],
+    [{ kind: "settings", category: "appearance" }, "/settings"],
+    [{ kind: "settings", category: "reading" }, "/settings/reading"],
+    [{ kind: "settings", category: "feeds" }, "/settings/feeds"],
+    [{ kind: "settings", category: "ai" }, "/settings/ai"],
+    [{ kind: "settings", category: "account" }, "/settings/account"],
     [
       { kind: "reader", scope: "all", scopeId: null, state: "starred", search: "" },
       "/articles/saved",
@@ -61,6 +65,7 @@ describe("application routes", () => {
     });
     expect(parseAppRoute("/settings", "?q=ignored", BASE_PATH)).toEqual({
       kind: "settings",
+      category: "appearance",
     });
     expect(parseAppRoute("/articles/8", "?q=ignored", BASE_PATH)).toEqual({
       kind: "article",

@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type SVGProps,
   useCallback,
@@ -74,6 +73,7 @@ import {
   formatDate,
   formatRefreshInterval,
   formatRelativeDate,
+  handleTabListKeyDown,
   ImportOpmlButton,
   PageHeader,
 } from "./shared";
@@ -182,25 +182,6 @@ const ADD_FEED_INPUTS: Record<
     add: "Add X feed",
   },
 };
-
-function handleFeedsTabKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-
-  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-  const currentIndex = tabs.indexOf(document.activeElement as HTMLButtonElement);
-  const nextIndex =
-    event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? tabs.length - 1
-        : event.key === "ArrowRight"
-          ? (Math.max(currentIndex, 0) + 1) % tabs.length
-          : (currentIndex <= 0 ? tabs.length : currentIndex) - 1;
-
-  event.preventDefault();
-  tabs[nextIndex]?.focus();
-  tabs[nextIndex]?.click();
-}
 
 function feedHost(value: string): string {
   return new URL(value).hostname.replace(/^www\./, "");
@@ -462,7 +443,7 @@ function FeedsPage({
           className="management-tabs"
           role="tablist"
           aria-label="Feed management"
-          onKeyDown={handleFeedsTabKeyDown}
+          onKeyDown={handleTabListKeyDown}
         >
           <button
             id="subscriptions-tab"

@@ -18,7 +18,13 @@ describe("static demo data", () => {
     });
     await expect(demoApi.bootstrap()).resolves.toMatchObject({
       counts: { unread: 15, starred: 1, all: 17 },
+      capabilities: { manualRefresh: true },
     });
+    await expect(demoApi.authConfig()).resolves.toEqual({
+      registrationAvailable: false,
+      passkeysAvailable: false,
+    });
+    await expect(demoApi.passkeys()).resolves.toEqual({ passkeys: [], hasPassword: false });
     expect(fetch).not.toHaveBeenCalled();
   });
 

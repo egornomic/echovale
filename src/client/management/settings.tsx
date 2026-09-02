@@ -5,6 +5,7 @@ import {
 } from "@simplewebauthn/browser";
 import {
   AlertTriangle,
+  BookOpenText,
   Check,
   Edit3,
   Eye,
@@ -15,13 +16,17 @@ import {
   Minus,
   Monitor,
   Moon,
+  Palette,
   Pencil,
   Plus,
+  Rss,
+  ShieldCheck,
+  Sparkles,
   Sun,
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AI_PROMPT_MAX_LENGTH,
   DEFAULT_ARTICLE_SUMMARY_PROMPT,
@@ -41,12 +46,32 @@ import { isDesktopApp } from "../desktop";
 import { DropdownCombobox, DropdownSelect } from "../dropdown";
 import { useAnimatedDialog } from "../motion";
 import { clearReaderPreferences, type Theme } from "../reader-preferences";
-import { ExportOpmlLink, formatRefreshInterval, ImportOpmlButton, Kbd, PageHeader } from "./shared";
+import type { SettingsCategory } from "../routes";
+import {
+  ExportOpmlLink,
+  formatRefreshInterval,
+  handleTabListKeyDown,
+  ImportOpmlButton,
+  Kbd,
+  PageHeader,
+} from "./shared";
 import { ShortcutReference } from "./shortcut-help";
 import "./dialogs.css";
 import "./settings.css";
 
 type SensitiveAction = <T>(action: () => Promise<T>) => Promise<T>;
+
+const SETTINGS_CATEGORIES = [
+  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "reading", label: "Reading", icon: BookOpenText },
+  { id: "feeds", label: "Feeds", icon: Rss },
+  { id: "ai", label: "AI", icon: Sparkles },
+  { id: "account", label: "Account", icon: ShieldCheck },
+] satisfies ReadonlyArray<{
+  id: SettingsCategory;
+  label: string;
+  icon: typeof BookOpenText;
+}>;
 
 interface PendingSensitiveAction {
   operationId: string;
@@ -1245,12 +1270,14 @@ function AiSettingsSection({
 
 function SettingsPage({
   userId,
+  category,
   settings,
   aiSettings,
   theme,
   fontSize,
   mutations,
   onMenu,
+  onCategory,
   onTheme,
   onFontSize,
   onSettings,
@@ -1259,12 +1286,14 @@ function SettingsPage({
   onAccountDeleted,
 }: {
   userId: string;
+  category: SettingsCategory;
   settings: AppSettings;
   aiSettings: AiSettings;
   theme: Theme;
   fontSize: number;
   mutations: ReaderDataMutations;
   onMenu: () => void;
+  onCategory: (category: SettingsCategory, historyMode?: "push" | "replace") => void;
   onTheme: (theme: Theme) => void;
   onFontSize: (value: number | ((current: number) => number)) => void;
   onSettings: (settings: AppSettings) => void;
@@ -1280,8 +1309,23 @@ function SettingsPage({
   const [stepUpError, setStepUpError] = useState<string | null>(null);
   const [stepUpHasPassword, setStepUpHasPassword] = useState(false);
   const [stepUpHasPasskey, setStepUpHasPasskey] = useState(false);
+  const pageRef = useRef<HTMLDivElement>(null);
   const stepUpDialogRef = useRef<HTMLDialogElement>(null);
   const stepUpPasswordRef = useRef<HTMLInputElement>(null);
+  const desktopApp = isDesktopApp();
+  const visibleCategories = desktopApp
+    ? SETTINGS_CATEGORIES.filter((option) => option.id !== "account")
+    : SETTINGS_CATEGORIES;
+
+  useLayoutEffect(() => {
+    if (pageRef.current?.querySelector(`#settings-${category}-panel`)) {
+      pageRef.current.scrollTo({ top: 0 });
+    }
+  }, [category]);
+
+  useEffect(() => {
+    if (desktopApp && category === "account") onCategory("appearance", "replace");
+  }, [category, desktopApp, onCategory]);
 
   useEffect(() => {
     setTranslationLanguage(settings.translationLanguage);
@@ -1372,10 +1416,10 @@ function SettingsPage({
   };
 
   return (
-    <div className="management-page settings-page">
+    <div ref={pageRef} className="management-page settings-page">
       <PageHeader
         title="Settings"
-        description="Manage account security, reading behavior, refresh intervals, AI, keyboard shortcuts, and OPML transfer."
+        description="Tune appearance, reading, feeds, AI, and account access."
         onMenu={onMenu}
         actions={
           saving ? (
@@ -1386,255 +1430,346 @@ function SettingsPage({
           ) : undefined
         }
       />
-      {!isDesktopApp() ? (
-        <AccountSettingsSection
-          userId={userId}
-          onAccountDeleted={onAccountDeleted}
-          showToast={showToast}
-          runSensitive={runSensitive}
-        />
+
+      <div className="management-tabs-shell">
+        <div
+          className="management-tabs settings-tabs"
+          role="tablist"
+          aria-label="Settings categories"
+          onKeyDown={handleTabListKeyDown}
+        >
+          {visibleCategories.map((option) => {
+            const Icon = option.icon;
+            const selected = category === option.id;
+            return (
+              <button
+                id={`settings-${option.id}-tab`}
+                key={option.id}
+                type="button"
+                role="tab"
+                aria-controls={`settings-${option.id}-panel`}
+                aria-selected={selected}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => onCategory(option.id)}
+              >
+                <Icon aria-hidden="true" size={15} />
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {category === "account" && !desktopApp ? (
+        <div
+          id="settings-account-panel"
+          className="settings-category-panel"
+          role="tabpanel"
+          aria-labelledby="settings-account-tab"
+        >
+          <AccountSettingsSection
+            userId={userId}
+            onAccountDeleted={onAccountDeleted}
+            showToast={showToast}
+            runSensitive={runSensitive}
+          />
+        </div>
       ) : null}
-      <section className="settings-section" aria-labelledby="appearance-heading">
-        <div className="settings-heading">
-          <h2 id="appearance-heading">Appearance</h2>
-          <p>These display choices apply to this account in this browser.</p>
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>Theme</strong>
-            <p>Choose a theme or follow your device appearance.</p>
-          </div>
-          <div className="theme-options">
-            <button type="button" aria-pressed={theme === "auto"} onClick={() => onTheme("auto")}>
-              <Monitor aria-hidden="true" size={17} />
-              Auto
-            </button>
-            <button type="button" aria-pressed={theme === "dark"} onClick={() => onTheme("dark")}>
-              <Moon aria-hidden="true" size={17} />
-              Dark
-            </button>
-            <button type="button" aria-pressed={theme === "light"} onClick={() => onTheme("light")}>
-              <Sun aria-hidden="true" size={17} />
-              Light
-            </button>
-          </div>
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>Article text size</strong>
-            <p>This size applies to full articles in both reading views.</p>
-          </div>
-          <div className="font-stepper">
-            <button
-              type="button"
-              disabled={fontSize <= 15}
-              onClick={() => onFontSize((current) => Math.max(15, current - 1))}
-              aria-label="Decrease article text size"
-            >
-              <Minus aria-hidden="true" size={16} />
-              <Kbd>[</Kbd>
-            </button>
-            <output>{fontSize}px</output>
-            <button
-              type="button"
-              disabled={fontSize >= 23}
-              onClick={() => onFontSize((current) => Math.min(23, current + 1))}
-              aria-label="Increase article text size"
-            >
-              <Plus aria-hidden="true" size={16} />
-              <Kbd>]</Kbd>
-            </button>
-          </div>
-        </div>
-      </section>
 
-      <section className="settings-section" aria-labelledby="reading-behavior-heading">
-        <div className="settings-heading">
-          <h2 id="reading-behavior-heading">Reading behavior</h2>
-          <p>These choices apply to every feed and folder.</p>
+      {category === "appearance" ? (
+        <div
+          id="settings-appearance-panel"
+          className="settings-category-panel"
+          role="tabpanel"
+          aria-labelledby="settings-appearance-tab"
+        >
+          <section className="settings-section" aria-labelledby="appearance-heading">
+            <div className="settings-heading">
+              <h2 id="appearance-heading">Appearance</h2>
+              <p>These display choices apply to this account in this browser.</p>
+            </div>
+            <div className="setting-row">
+              <div>
+                <strong>Theme</strong>
+                <p>Choose a theme or follow your device appearance.</p>
+              </div>
+              <div className="theme-options">
+                <button
+                  type="button"
+                  aria-pressed={theme === "auto"}
+                  onClick={() => onTheme("auto")}
+                >
+                  <Monitor aria-hidden="true" size={17} />
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={theme === "dark"}
+                  onClick={() => onTheme("dark")}
+                >
+                  <Moon aria-hidden="true" size={17} />
+                  Dark
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={theme === "light"}
+                  onClick={() => onTheme("light")}
+                >
+                  <Sun aria-hidden="true" size={17} />
+                  Light
+                </button>
+              </div>
+            </div>
+            <div className="setting-row">
+              <div>
+                <strong>Article text size</strong>
+                <p>This size applies to full articles in both reading views.</p>
+              </div>
+              <div className="font-stepper">
+                <button
+                  type="button"
+                  disabled={fontSize <= 15}
+                  onClick={() => onFontSize((current) => Math.max(15, current - 1))}
+                  aria-label="Decrease article text size"
+                >
+                  <Minus aria-hidden="true" size={16} />
+                  <Kbd>[</Kbd>
+                </button>
+                <output>{fontSize}px</output>
+                <button
+                  type="button"
+                  disabled={fontSize >= 23}
+                  onClick={() => onFontSize((current) => Math.min(23, current + 1))}
+                  aria-label="Increase article text size"
+                >
+                  <Plus aria-hidden="true" size={16} />
+                  <Kbd>]</Kbd>
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
-        <div className="setting-row">
-          <div>
-            <strong>Mark as read on scroll</strong>
-            <p>Mark an article as read after you scroll completely past it.</p>
-          </div>
-          <button
-            className={`switch ${settings.markReadOnScroll ? "is-on" : ""}`}
-            type="button"
-            role="switch"
-            aria-label="Mark as read on scroll"
-            aria-checked={settings.markReadOnScroll}
-            disabled={saving}
-            onClick={() => void saveSettings({ markReadOnScroll: !settings.markReadOnScroll })}
-          >
-            <span />
-          </button>
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>YouTube descriptions</strong>
-            <p>Show descriptions from YouTube videos and Shorts in lists and below the player.</p>
-          </div>
-          <button
-            className={`switch ${settings.showYouTubeDescriptions ? "is-on" : ""}`}
-            type="button"
-            role="switch"
-            aria-label="Show YouTube descriptions"
-            aria-checked={settings.showYouTubeDescriptions}
-            disabled={saving}
-            onClick={() =>
-              void saveSettings({
-                showYouTubeDescriptions: !settings.showYouTubeDescriptions,
-              })
-            }
-          >
-            <span />
-          </button>
-        </div>
-        <div className="setting-row">
-          <label htmlFor="translation-language">
-            <strong>Translation language</strong>
-            <p>Translate articles into this language with the configured AI model.</p>
-          </label>
-          <form
-            className="translation-language-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const language = translationLanguage.trim();
-              if (language) void saveSettings({ translationLanguage: language });
-            }}
-          >
-            <DropdownCombobox
-              id="translation-language"
-              ariaLabel="Translation language"
-              value={translationLanguage}
-              suggestions={[
-                "English",
-                "Polish",
-                "German",
-                "Spanish",
-                "French",
-                "Italian",
-                "Portuguese",
-                "Ukrainian",
-              ]}
-              maxLength={80}
-              required
-              disabled={saving}
-              onChange={setTranslationLanguage}
-            />
-            <button
-              className="secondary-button"
-              type="submit"
-              disabled={
-                saving ||
-                !translationLanguage.trim() ||
-                translationLanguage.trim() === settings.translationLanguage
-              }
-            >
-              Save language
-            </button>
-          </form>
-        </div>
-      </section>
+      ) : null}
 
-      <AiSettingsSection
-        settings={settings}
-        aiSettings={aiSettings}
-        onSettings={onSettings}
-        onAiSettings={onAiSettings}
-        showToast={showToast}
-        runSensitive={runSensitive}
-      />
+      {category === "reading" ? (
+        <div
+          id="settings-reading-panel"
+          className="settings-category-panel"
+          role="tabpanel"
+          aria-labelledby="settings-reading-tab"
+        >
+          <section className="settings-section" aria-labelledby="reading-behavior-heading">
+            <div className="settings-heading">
+              <h2 id="reading-behavior-heading">Reading behavior</h2>
+              <p>These choices apply to every feed and folder.</p>
+            </div>
+            <div className="setting-row">
+              <div>
+                <strong>Mark as read on scroll</strong>
+                <p>Mark an article as read after you scroll completely past it.</p>
+              </div>
+              <button
+                className={`switch ${settings.markReadOnScroll ? "is-on" : ""}`}
+                type="button"
+                role="switch"
+                aria-label="Mark as read on scroll"
+                aria-checked={settings.markReadOnScroll}
+                disabled={saving}
+                onClick={() => void saveSettings({ markReadOnScroll: !settings.markReadOnScroll })}
+              >
+                <span />
+              </button>
+            </div>
+            <div className="setting-row">
+              <div>
+                <strong>YouTube descriptions</strong>
+                <p>
+                  Show descriptions from YouTube videos and Shorts in lists and below the player.
+                </p>
+              </div>
+              <button
+                className={`switch ${settings.showYouTubeDescriptions ? "is-on" : ""}`}
+                type="button"
+                role="switch"
+                aria-label="Show YouTube descriptions"
+                aria-checked={settings.showYouTubeDescriptions}
+                disabled={saving}
+                onClick={() =>
+                  void saveSettings({
+                    showYouTubeDescriptions: !settings.showYouTubeDescriptions,
+                  })
+                }
+              >
+                <span />
+              </button>
+            </div>
+            <div className="setting-row">
+              <label htmlFor="translation-language">
+                <strong>Translation language</strong>
+                <p>Translate articles into this language with the configured AI model.</p>
+              </label>
+              <form
+                className="translation-language-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const language = translationLanguage.trim();
+                  if (language) void saveSettings({ translationLanguage: language });
+                }}
+              >
+                <DropdownCombobox
+                  id="translation-language"
+                  ariaLabel="Translation language"
+                  value={translationLanguage}
+                  suggestions={[
+                    "English",
+                    "Polish",
+                    "German",
+                    "Spanish",
+                    "French",
+                    "Italian",
+                    "Portuguese",
+                    "Ukrainian",
+                  ]}
+                  maxLength={80}
+                  required
+                  disabled={saving}
+                  onChange={setTranslationLanguage}
+                />
+                <button
+                  className="secondary-button"
+                  type="submit"
+                  disabled={
+                    saving ||
+                    !translationLanguage.trim() ||
+                    translationLanguage.trim() === settings.translationLanguage
+                  }
+                >
+                  Save language
+                </button>
+              </form>
+            </div>
+          </section>
 
-      <section className="settings-section" aria-labelledby="refresh-heading">
-        <div className="settings-heading">
-          <h2 id="refresh-heading">Refresh</h2>
+          <section className="settings-section" aria-labelledby="keyboard-heading">
+            <div className="settings-heading">
+              <h2 id="keyboard-heading">Keyboard</h2>
+              <p>Single-key shortcuts pause while you type in a form field.</p>
+            </div>
+            <div className="setting-row">
+              <div>
+                <strong>Single-key shortcuts</strong>
+                <p>Turn off letter and number shortcuts. Tab navigation remains available.</p>
+              </div>
+              <button
+                className={`switch ${settings.singleKeyShortcuts ? "is-on" : ""}`}
+                type="button"
+                role="switch"
+                aria-label="Single-key shortcuts"
+                aria-checked={settings.singleKeyShortcuts}
+                disabled={saving}
+                onClick={() =>
+                  void saveSettings({ singleKeyShortcuts: !settings.singleKeyShortcuts })
+                }
+              >
+                <span />
+              </button>
+            </div>
+            <ShortcutReference compact />
+          </section>
         </div>
-        <div className="setting-row">
-          <label htmlFor="poll-interval">
-            <strong>New feed interval</strong>
-            <p>
-              Published feeds start here, then adapt between 5 and 60 minutes based on new posts.
-            </p>
-          </label>
-          <DropdownSelect
-            id="poll-interval"
-            value={String(settings.pollIntervalMinutes)}
-            disabled={saving}
-            options={[5, 10, 20, 30, 60].map((minutes) => ({
-              value: String(minutes),
-              label: formatRefreshInterval(minutes),
-            }))}
-            onChange={(value) => void saveSettings({ pollIntervalMinutes: Number(value) })}
+      ) : null}
+
+      {category === "ai" ? (
+        <div
+          id="settings-ai-panel"
+          className="settings-category-panel"
+          role="tabpanel"
+          aria-labelledby="settings-ai-tab"
+        >
+          <AiSettingsSection
+            settings={settings}
+            aiSettings={aiSettings}
+            onSettings={onSettings}
+            onAiSettings={onAiSettings}
+            showToast={showToast}
+            runSensitive={runSensitive}
           />
         </div>
-        <div className="setting-row">
-          <label htmlFor="duplicate-article-window">
-            <strong>Duplicate article window</strong>
-            <p>
-              Skip a new article when its exact URL or exact title appeared in any feed during this
-              period.
-            </p>
-          </label>
-          <DropdownSelect
-            id="duplicate-article-window"
-            value={String(settings.duplicateArticleWindowDays)}
-            disabled={saving}
-            options={DUPLICATE_ARTICLE_WINDOW_DAYS.map((days) => ({
-              value: String(days),
-              label: days === 1 ? "Past day" : `Past ${days} days`,
-            }))}
-            onChange={(value) =>
-              void saveSettings({
-                duplicateArticleWindowDays: Number(value) as DuplicateArticleWindowDays,
-              })
-            }
-          />
-        </div>
-      </section>
+      ) : null}
 
-      <section className="settings-section" aria-labelledby="keyboard-heading">
-        <div className="settings-heading">
-          <h2 id="keyboard-heading">Keyboard</h2>
-          <p>Single-key shortcuts pause while you type in a form field.</p>
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>Single-key shortcuts</strong>
-            <p>Turn off letter and number shortcuts. Tab navigation remains available.</p>
-          </div>
-          <button
-            className={`switch ${settings.singleKeyShortcuts ? "is-on" : ""}`}
-            type="button"
-            role="switch"
-            aria-label="Single-key shortcuts"
-            aria-checked={settings.singleKeyShortcuts}
-            disabled={saving}
-            onClick={() => void saveSettings({ singleKeyShortcuts: !settings.singleKeyShortcuts })}
-          >
-            <span />
-          </button>
-        </div>
-        <ShortcutReference compact />
-      </section>
+      {category === "feeds" ? (
+        <div
+          id="settings-feeds-panel"
+          className="settings-category-panel"
+          role="tabpanel"
+          aria-labelledby="settings-feeds-tab"
+        >
+          <section className="settings-section" aria-labelledby="refresh-heading">
+            <div className="settings-heading">
+              <h2 id="refresh-heading">Refresh</h2>
+            </div>
+            <div className="setting-row">
+              <label htmlFor="poll-interval">
+                <strong>New feed interval</strong>
+                <p>
+                  Published feeds start here, then adapt between 5 and 60 minutes based on new
+                  posts.
+                </p>
+              </label>
+              <DropdownSelect
+                id="poll-interval"
+                value={String(settings.pollIntervalMinutes)}
+                disabled={saving}
+                options={[5, 10, 20, 30, 60].map((minutes) => ({
+                  value: String(minutes),
+                  label: formatRefreshInterval(minutes),
+                }))}
+                onChange={(value) => void saveSettings({ pollIntervalMinutes: Number(value) })}
+              />
+            </div>
+            <div className="setting-row">
+              <label htmlFor="duplicate-article-window">
+                <strong>Duplicate article window</strong>
+                <p>
+                  Skip a new article when its exact URL or exact title appeared in any feed during
+                  this period.
+                </p>
+              </label>
+              <DropdownSelect
+                id="duplicate-article-window"
+                value={String(settings.duplicateArticleWindowDays)}
+                disabled={saving}
+                options={DUPLICATE_ARTICLE_WINDOW_DAYS.map((days) => ({
+                  value: String(days),
+                  label: days === 1 ? "Past day" : `Past ${days} days`,
+                }))}
+                onChange={(value) =>
+                  void saveSettings({
+                    duplicateArticleWindowDays: Number(value) as DuplicateArticleWindowDays,
+                  })
+                }
+              />
+            </div>
+          </section>
 
-      <section className="settings-section" aria-labelledby="portable-heading">
-        <div className="settings-heading">
-          <h2 id="portable-heading">Subscriptions</h2>
-          <p>Use OPML to move feed URLs and folder structure between readers.</p>
+          <section className="settings-section" aria-labelledby="portable-heading">
+            <div className="settings-heading">
+              <h2 id="portable-heading">Subscriptions</h2>
+              <p>Use OPML to move feed URLs and folder structure between readers.</p>
+            </div>
+            <div className="setting-row">
+              <div>
+                <strong>Import or export OPML</strong>
+                <p>Import adds new feeds and skips feed URLs you already follow.</p>
+              </div>
+              <div className="settings-actions">
+                <ImportOpmlButton mutations={mutations} showToast={showToast} />
+                <ExportOpmlLink />
+              </div>
+            </div>
+          </section>
         </div>
-        <div className="setting-row">
-          <div>
-            <strong>Import or export OPML</strong>
-            <p>Import adds new feeds and skips feed URLs you already follow.</p>
-          </div>
-          <div className="settings-actions">
-            <ImportOpmlButton mutations={mutations} showToast={showToast} />
-            <ExportOpmlLink />
-          </div>
-        </div>
-      </section>
+      ) : null}
       <dialog
         ref={stepUpDialogRef}
         className="management-dialog passkey-dialog"

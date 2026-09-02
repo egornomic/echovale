@@ -867,7 +867,7 @@ function ReaderApp({
                     onRunSummaryPrompt={articleActions.runArticleSummaryPrompt}
                     onToggleTranslation={articleActions.toggleArticleTranslation}
                     onRegenerateSummary={articleActions.regenerateArticleSummary}
-                    onOpenAiSettings={() => navigateTo("settings")}
+                    onOpenAiSettings={() => route.navigate({ kind: "settings", category: "ai" })}
                     onFilterSelection={filterSelectedText}
                   />
                 </>
@@ -907,7 +907,7 @@ function ReaderApp({
                   onRunSummaryPrompt={articleActions.runArticleSummaryPrompt}
                   onToggleTranslation={articleActions.toggleArticleTranslation}
                   onRegenerateSummary={articleActions.regenerateArticleSummary}
-                  onOpenAiSettings={() => navigateTo("settings")}
+                  onOpenAiSettings={() => route.navigate({ kind: "settings", category: "ai" })}
                   onFilterSelection={filterSelectedText}
                 />
               )}
@@ -959,12 +959,16 @@ function ReaderApp({
           <Suspense fallback={<ManagementRouteFallback />}>
             <SettingsPage
               userId={user.id}
+              category={route.route.kind === "settings" ? route.route.category : "appearance"}
               settings={bootstrap.settings}
               aiSettings={bootstrap.aiSettings}
               theme={preferences.theme}
               fontSize={preferences.articleFontSize}
               mutations={dataResource}
               onMenu={() => setNavOpen(true)}
+              onCategory={(category, historyMode) =>
+                route.navigate({ kind: "settings", category }, historyMode)
+              }
               onTheme={preferences.setTheme}
               onFontSize={preferences.setArticleFontSize}
               onSettings={articleActions.applySettings}

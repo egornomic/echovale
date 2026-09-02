@@ -154,7 +154,13 @@ export function useAppRoute(basePath: string): AppRouteController {
 
   const navigateToView = useCallback(
     (nextView: AppView) => {
-      navigate(nextView === "reader" ? lastReaderRoute.current : { kind: nextView });
+      navigate(
+        nextView === "reader"
+          ? lastReaderRoute.current
+          : nextView === "settings"
+            ? { kind: "settings", category: "appearance" }
+            : { kind: nextView },
+      );
     },
     [navigate],
   );
