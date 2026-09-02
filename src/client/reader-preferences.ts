@@ -30,6 +30,17 @@ function accountStorageKey(userId: string, setting: string): string {
   return `feedfold-account-${userId}-${setting}`;
 }
 
+export function clearReaderPreferences(userId: string): void {
+  for (const setting of [
+    "reading-mode",
+    "theme",
+    "article-font-size",
+    "desktop-sidebar-collapsed",
+  ]) {
+    window.localStorage.removeItem(accountStorageKey(userId, setting));
+  }
+}
+
 export function resolveTheme(theme: Theme, prefersLight: boolean): ResolvedTheme {
   if (theme !== "auto") return theme;
   return prefersLight ? "light" : "dark";

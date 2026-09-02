@@ -401,6 +401,16 @@ export class AuthRepository {
     this.sqlite.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hash);
   }
 
+  deleteAccount(userId: number): boolean {
+    return this.sqlite.transaction(() => {
+      this.sqlite.prepare("DELETE FROM quota_daily_usage WHERE scope = ?").run(`user:${userId}`);
+      return (
+        this.sqlite.prepare("DELETE FROM users WHERE id = ? AND enabled = 1").run(userId).changes >
+        0
+      );
+    })();
+  }
+
   markSessionRecentlyAuthenticated(hash: string, at: string): boolean {
     return (
       this.sqlite

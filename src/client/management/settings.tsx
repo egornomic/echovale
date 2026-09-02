@@ -40,7 +40,7 @@ import type { ReaderDataMutations } from "../data-resource";
 import { isDesktopApp } from "../desktop";
 import { DropdownCombobox, DropdownSelect } from "../dropdown";
 import { useAnimatedDialog } from "../motion";
-import type { Theme } from "../reader-preferences";
+import { clearReaderPreferences, type Theme } from "../reader-preferences";
 import { ExportOpmlLink, formatRefreshInterval, ImportOpmlButton, Kbd, PageHeader } from "./shared";
 import { ShortcutReference } from "./shortcut-help";
 import "./dialogs.css";
@@ -56,9 +56,13 @@ interface PendingSensitiveAction {
 }
 
 function AccountSettingsSection({
+  userId,
+  onAccountDeleted,
   showToast,
   runSensitive,
 }: {
+  userId: string;
+  onAccountDeleted: () => void;
   showToast: (message: string) => void;
   runSensitive: SensitiveAction;
 }) {
@@ -75,8 +79,12 @@ function AccountSettingsSection({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [accountDeleteError, setAccountDeleteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const passkeyNameRef = useRef<HTMLInputElement>(null);
+  const resetAccountDialog = useCallback(() => setAccountDeleteError(null), []);
+  const accountDialog = useAnimatedDialog(resetAccountDialog, { autoOpen: false });
 
   useEffect(() => {
     let active = true;
@@ -206,6 +214,24 @@ function AccountSettingsSection({
       setError(errorMessage(caught));
     } finally {
       setChangingPassword(false);
+    }
+  };
+
+  const closeAccountDialog = () => {
+    if (!deletingAccount) accountDialog.close();
+  };
+
+  const deleteAccount = async (event: FormEvent) => {
+    event.preventDefault();
+    setDeletingAccount(true);
+    setAccountDeleteError(null);
+    try {
+      await runSensitive(() => api.deleteAccount());
+      clearReaderPreferences(userId);
+      onAccountDeleted();
+    } catch (caught) {
+      setAccountDeleteError(errorMessage(caught));
+      setDeletingAccount(false);
     }
   };
 
@@ -389,12 +415,88 @@ function AccountSettingsSection({
           ) : null}
         </div>
       </form>
+      <div className="account-setting-block account-delete-setting">
+        <div>
+          <strong>Delete account</strong>
+          <p>Permanently delete your subscriptions, reading state, passkeys, and saved API keys.</p>
+        </div>
+        <button className="danger-button" type="button" onClick={accountDialog.open}>
+          <Trash2 aria-hidden="true" size={15} />
+          Delete account
+        </button>
+      </div>
       {error ? (
         <div className="ai-settings-error" role="alert">
           <AlertTriangle aria-hidden="true" size={16} />
           <span>{error}</span>
         </div>
       ) : null}
+      <dialog
+        ref={accountDialog.dialogRef}
+        className="management-dialog passkey-dialog"
+        aria-labelledby="account-delete-dialog-title"
+        data-state={accountDialog.closing ? "closing" : "open"}
+        inert={accountDialog.closing}
+        onClose={accountDialog.handleClose}
+        onCancel={(event) => {
+          if (deletingAccount) {
+            event.preventDefault();
+            return;
+          }
+          accountDialog.handleCancel(event);
+        }}
+      >
+        <form className="passkey-dialog-form" onSubmit={(event) => void deleteAccount(event)}>
+          <header className="management-dialog-heading">
+            <span className="dialog-icon" aria-hidden="true">
+              <Trash2 size={16} />
+            </span>
+            <div>
+              <h2 id="account-delete-dialog-title">Delete account</h2>
+              <p>This cannot be undone. Every browser will be signed out.</p>
+            </div>
+            <button
+              className="icon-button"
+              type="button"
+              disabled={deletingAccount}
+              onClick={closeAccountDialog}
+              aria-label="Close account deletion"
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          </header>
+          <div className="management-dialog-body passkey-dialog-body">
+            <p className="account-delete-warning">
+              This permanently deletes this account and all private data.
+            </p>
+            {accountDeleteError ? (
+              <div className="management-dialog-error" role="alert">
+                <AlertTriangle aria-hidden="true" size={16} />
+                <span>{accountDeleteError}</span>
+              </div>
+            ) : null}
+          </div>
+          <footer className="management-dialog-footer">
+            <span />
+            <div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={deletingAccount}
+                onClick={closeAccountDialog}
+              >
+                Cancel
+              </button>
+              <button className="danger-button" type="submit" disabled={deletingAccount}>
+                {deletingAccount ? (
+                  <LoaderCircle className="spin" aria-hidden="true" size={15} />
+                ) : null}
+                Delete account
+              </button>
+            </div>
+          </footer>
+        </form>
+      </dialog>
     </section>
   );
 }
@@ -1142,6 +1244,7 @@ function AiSettingsSection({
 }
 
 function SettingsPage({
+  userId,
   settings,
   aiSettings,
   theme,
@@ -1153,7 +1256,9 @@ function SettingsPage({
   onSettings,
   onAiSettings,
   showToast,
+  onAccountDeleted,
 }: {
+  userId: string;
   settings: AppSettings;
   aiSettings: AiSettings;
   theme: Theme;
@@ -1165,6 +1270,7 @@ function SettingsPage({
   onSettings: (settings: AppSettings) => void;
   onAiSettings: (settings: AiSettings) => void;
   showToast: (message: string) => void;
+  onAccountDeleted: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [translationLanguage, setTranslationLanguage] = useState(settings.translationLanguage);
@@ -1281,7 +1387,12 @@ function SettingsPage({
         }
       />
       {!isDesktopApp() ? (
-        <AccountSettingsSection showToast={showToast} runSensitive={runSensitive} />
+        <AccountSettingsSection
+          userId={userId}
+          onAccountDeleted={onAccountDeleted}
+          showToast={showToast}
+          runSensitive={runSensitive}
+        />
       ) : null}
       <section className="settings-section" aria-labelledby="appearance-heading">
         <div className="settings-heading">

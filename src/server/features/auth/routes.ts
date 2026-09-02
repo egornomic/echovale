@@ -256,6 +256,20 @@ export async function authRoutes(
     return reply.code(204).send();
   });
 
+  app.delete("/api/auth/account", async (request, reply) => {
+    const user = authenticatedUser(request, authService);
+    if (!user) return reply.code(401).send({ error: "Sign in to continue." });
+    if (!authService.deleteAccount(user.id))
+      return reply.code(401).send({ error: "Sign in to continue." });
+    return reply
+      .header(
+        "Set-Cookie",
+        authService.clearSessionCookie(secureRequest(request, configuredOrigin)),
+      )
+      .code(204)
+      .send();
+  });
+
   app.get("/api/auth/passkeys", async (request, reply) => {
     const user = authenticatedUser(request, authService);
     if (!user) return reply.code(401).send({ error: "Sign in to continue." });

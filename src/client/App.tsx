@@ -197,10 +197,20 @@ export function App() {
     return <StartupError message={sessionError} retry={() => void loadSession()} />;
   }
   if (!user) return <LoginPage onAuthenticated={setUser} />;
-  return <ReaderApp key={user.id} user={user} onLogout={logout} />;
+  return (
+    <ReaderApp key={user.id} user={user} onLogout={logout} onAccountDeleted={() => setUser(null)} />
+  );
 }
 
-function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Promise<void> }) {
+function ReaderApp({
+  user,
+  onLogout,
+  onAccountDeleted,
+}: {
+  user: SessionUser;
+  onLogout: () => Promise<void>;
+  onAccountDeleted: () => void;
+}) {
   const route = useAppRoute(APP_BASE_PATH);
   const preferences = useReaderPreferences(user.id);
   const { desktopSidebarCollapsed, setDesktopSidebarCollapsed } = preferences;
@@ -948,6 +958,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
         ) : (
           <Suspense fallback={<ManagementRouteFallback />}>
             <SettingsPage
+              userId={user.id}
               settings={bootstrap.settings}
               aiSettings={bootstrap.aiSettings}
               theme={preferences.theme}
@@ -958,6 +969,7 @@ function ReaderApp({ user, onLogout }: { user: SessionUser; onLogout: () => Prom
               onFontSize={preferences.setArticleFontSize}
               onSettings={articleActions.applySettings}
               onAiSettings={articleActions.applyAiSettings}
+              onAccountDeleted={onAccountDeleted}
               showToast={showToast}
             />
           </Suspense>

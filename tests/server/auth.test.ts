@@ -366,6 +366,220 @@ describe("hosted account authentication", () => {
     ).toBe(200);
   });
 
+  it("deletes an authenticated account, its credentials, sessions, and private state", async () => {
+    const { app, database } = await authApp();
+    const registration = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { username: "reader", password: "reader-password" },
+    });
+    const currentSession = cookieFrom(registration.headers["set-cookie"]);
+    const userId = Number(
+      database.connection.prepare("SELECT id FROM users WHERE username = 'reader'").pluck().get(),
+    );
+    const otherLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "reader", password: "reader-password" },
+    });
+    const otherSession = cookieFrom(otherLogin.headers["set-cookie"]);
+    const timestamp = new Date().toISOString();
+
+    database.connection
+      .prepare(
+        `INSERT INTO feed_sources (feed_url, source_kind, title, created_at, updated_at)
+         VALUES ('https://example.com/feed.xml', 'published', 'Example', ?, ?)`,
+      )
+      .run(timestamp, timestamp);
+    const sourceId = Number(
+      database.connection.prepare("SELECT id FROM feed_sources").pluck().get(),
+    );
+    database.connection
+      .prepare(
+        `INSERT INTO folders (user_id, parent_id, name, created_at, updated_at)
+         VALUES (?, NULL, 'Saved', ?, ?)`,
+      )
+      .run(userId, timestamp, timestamp);
+    const folderId = Number(database.connection.prepare("SELECT id FROM folders").pluck().get());
+    database.connection
+      .prepare(
+        `INSERT INTO feeds (user_id, source_id, folder_id, title, created_at, updated_at)
+         VALUES (?, ?, ?, 'Example', ?, ?)`,
+      )
+      .run(userId, sourceId, folderId, timestamp, timestamp);
+    const feedId = Number(database.connection.prepare("SELECT id FROM feeds").pluck().get());
+    database.connection
+      .prepare(
+        `INSERT INTO articles (source_id, external_id, title, discovered_at)
+         VALUES (?, 'article-1', 'Example article', ?)`,
+      )
+      .run(sourceId, timestamp);
+    const articleId = Number(database.connection.prepare("SELECT id FROM articles").pluck().get());
+    database.connection
+      .prepare(
+        `INSERT INTO feed_articles (feed_id, article_id, delivered_at, is_read, is_starred)
+         VALUES (?, ?, ?, 1, 1)`,
+      )
+      .run(feedId, articleId, timestamp);
+    database.connection
+      .prepare(
+        `INSERT INTO ignored_feed_articles (feed_id, external_id)
+         VALUES (?, 'ignored-article')`,
+      )
+      .run(feedId);
+    database.connection
+      .prepare(
+        `INSERT INTO rules (
+           user_id, name, conditions_json, condition_operator, action, created_at, updated_at
+         ) VALUES (?, 'Keep example', '[]', 'and', 'keep', ?, ?)`,
+      )
+      .run(userId, timestamp, timestamp);
+    const ruleId = Number(database.connection.prepare("SELECT id FROM rules").pluck().get());
+    database.connection
+      .prepare(`INSERT INTO article_rule_matches (feed_id, article_id, rule_id) VALUES (?, ?, ?)`)
+      .run(feedId, articleId, ruleId);
+    database.connection
+      .prepare(
+        `INSERT INTO ai_credentials (
+           user_id, provider, encrypted_api_key, created_at, updated_at
+         ) VALUES (?, 'openai', 'encrypted-key', ?, ?)`,
+      )
+      .run(userId, timestamp, timestamp);
+    database.connection
+      .prepare(
+        `INSERT INTO ai_feature_settings (user_id, feature, provider, model, updated_at)
+         VALUES (?, 'article_summary', 'openai', 'test-model', ?)`,
+      )
+      .run(userId, timestamp);
+    database.connection
+      .prepare(
+        `INSERT INTO article_ai_summaries (
+           user_id, article_id, source_revision, prompt_version, source_kind, provider, model,
+           summary_text, generated_at
+         ) VALUES (?, ?, 1, 1, 'feed', 'openai', 'test-model', 'Summary', ?)`,
+      )
+      .run(userId, articleId, timestamp);
+    database.connection
+      .prepare(
+        `INSERT INTO article_ai_translations (
+           user_id, article_id, target_language, source_kind, source_revision, prompt_version,
+           provider, model, translation_html, generated_at
+         ) VALUES (?, ?, 'Polish', 'feed', 1, 1, 'openai', 'test-model', '<p>Tekst</p>', ?)`,
+      )
+      .run(userId, articleId, timestamp);
+    database.connection
+      .prepare(
+        `INSERT INTO passkeys (
+           id, user_id, public_key, counter, device_type, backed_up, transports_json, created_at
+         ) VALUES ('passkey-1', ?, x'01', 0, 'singleDevice', 0, '[]', ?)`,
+      )
+      .run(userId, timestamp);
+    database.connection
+      .prepare(
+        `INSERT INTO auth_challenges (
+           id_hash, challenge, kind, user_id, origin, rp_id, expires_at
+         ) VALUES ('challenge-1', 'challenge', 'passkey-registration', ?,
+                   'https://reader.example.test', 'reader.example.test', ?)`,
+      )
+      .run(userId, new Date(Date.now() + 60_000).toISOString());
+    database.connection
+      .prepare(
+        `INSERT INTO quota_daily_usage (scope, resource, day, count)
+         VALUES (?, 'feed_discovery', date('now'), 1)`,
+      )
+      .run(`user:${userId}`);
+
+    expect(
+      (
+        await app.inject({
+          method: "DELETE",
+          url: "/api/auth/account",
+        })
+      ).statusCode,
+    ).toBe(401);
+
+    database.connection
+      .prepare("UPDATE sessions SET recent_auth_at = '2000-01-01T00:00:00.000Z'")
+      .run();
+    const blocked = await app.inject({
+      method: "DELETE",
+      url: "/api/auth/account",
+      headers: { cookie: currentSession },
+    });
+    expect(blocked.statusCode).toBe(428);
+    const operationId = blocked.json<{ operationId: string }>().operationId;
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/auth/step-up/password",
+      headers: { cookie: currentSession },
+      payload: { operationId, password: "wrong-password" },
+    });
+    expect(rejected.statusCode).toBe(401);
+    expect(database.connection.prepare("SELECT COUNT(*) FROM users").pluck().get()).toBe(1);
+
+    const authenticated = await app.inject({
+      method: "POST",
+      url: "/api/auth/step-up/password",
+      headers: { cookie: currentSession },
+      payload: { operationId, password: "reader-password" },
+    });
+    expect(authenticated.statusCode).toBe(204);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: "/api/auth/account",
+      headers: { cookie: currentSession },
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(deleted.headers["set-cookie"]).toContain("Max-Age=0");
+
+    for (const table of [
+      "users",
+      "sessions",
+      "settings",
+      "folders",
+      "feeds",
+      "feed_articles",
+      "ignored_feed_articles",
+      "rules",
+      "article_rule_matches",
+      "ai_credentials",
+      "ai_feature_settings",
+      "article_ai_summaries",
+      "article_ai_translations",
+      "passkeys",
+      "auth_challenges",
+      "auth_operations",
+      "quota_daily_usage",
+    ]) {
+      expect(database.connection.prepare(`SELECT COUNT(*) FROM ${table}`).pluck().get()).toBe(0);
+    }
+    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(1);
+    expect(database.connection.prepare("SELECT COUNT(*) FROM articles").pluck().get()).toBe(1);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/auth/session",
+          headers: { cookie: otherSession },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/auth/login",
+          payload: { username: "reader", password: "reader-password" },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/auth/config" })).json()).toMatchObject({
+      registrationAvailable: true,
+    });
+  });
+
   it("rejects cross-site state changes without ending the session", async () => {
     const { app } = await authApp("https://reader.example.test");
     const registration = await app.inject({

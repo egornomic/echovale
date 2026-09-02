@@ -189,6 +189,7 @@ export class ApplicationApi {
         return { passkeys: [] };
       case "changePassword":
       case "removePassword":
+      case "deleteAccount":
       case "passkeySignupOptions":
       case "completePasskeySignup":
       case "stepUpPassword":

@@ -465,6 +465,7 @@ export class DemoStore {
       case "register":
         return { user: this.session() };
       case "logout":
+      case "deleteAccount":
         return undefined;
       case "bootstrap":
         return this.bootstrap();

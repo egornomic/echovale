@@ -22,6 +22,7 @@
 
 .account-setting-heading strong,
 .password-change-form > div:first-child strong,
+.account-delete-setting strong,
 .passkey-list strong {
   display: block;
   color: var(--text);
@@ -30,6 +31,7 @@
 
 .account-setting-heading p,
 .password-change-form > div:first-child p,
+.account-delete-setting p,
 .passkey-list p,
 .account-setting-note {
   margin: 2px 0 0;
@@ -158,6 +160,24 @@
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(360px, 2fr);
   gap: 28px;
+}
+
+.account-delete-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.account-delete-setting .danger-button {
+  flex: 0 0 auto;
+}
+
+.account-delete-warning {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--type-supporting);
+  line-height: var(--leading-body);
 }
 
 .password-change-fields {
@@ -578,7 +598,8 @@
 }
 
 @media (max-width: 640px) {
-  .account-setting-heading {
+  .account-setting-heading,
+  .account-delete-setting {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;

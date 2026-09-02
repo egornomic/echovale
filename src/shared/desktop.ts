@@ -8,6 +8,7 @@ export const DESKTOP_OPERATIONS = [
   "authConfig",
   "changePassword",
   "removePassword",
+  "deleteAccount",
   "stepUpPassword",
   "stepUpPasskeyOptions",
   "stepUpPasskey",

@@ -501,6 +501,10 @@ export class AuthService {
     );
   }
 
+  deleteAccount(userId: number): boolean {
+    return this.repository.deleteAccount(userId);
+  }
+
   passkeys(userId: number): PasskeySummary[] {
     return this.repository.passkeysForUser(userId).map(passkeySummary);
   }

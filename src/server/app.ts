@@ -200,6 +200,7 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
       (request.method === "POST" &&
         (path === "/api/auth/passkeys/options" || path === "/api/auth/passkeys")) ||
       (request.method === "DELETE" && path.startsWith("/api/auth/passkeys/")) ||
+      (request.method === "DELETE" && path === "/api/auth/account") ||
       (["PUT", "DELETE"].includes(request.method) && path === "/api/auth/password") ||
       (["PUT", "DELETE"].includes(request.method) &&
         /^\/api\/ai\/providers\/[^/]+\/key$/.test(path));

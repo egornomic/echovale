@@ -141,6 +141,9 @@ export function createApiClient(runtime: ApiRuntime) {
     removePassword: () =>
       request<void>("removePassword", undefined, "/api/auth/password", { method: "DELETE" }),
 
+    deleteAccount: () =>
+      request<void>("deleteAccount", undefined, "/api/auth/account", { method: "DELETE" }),
+
     async passkeys(): Promise<{ passkeys: PasskeySummary[]; hasPassword: boolean }> {
       return request<{ passkeys: PasskeySummary[]; hasPassword: boolean }>(
         "passkeys",
