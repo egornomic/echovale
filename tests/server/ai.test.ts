@@ -396,7 +396,7 @@ describe("AI article summaries", () => {
       ],
       generationConfig: {
         maxOutputTokens: 900,
-        thinkingConfig: { thinkingLevel: "minimal" },
+        thinkingConfig: { thinkingLevel: "medium" },
       },
     });
     expect(JSON.stringify(requests[0])).not.toContain("feed description must not be summarized");
@@ -570,7 +570,7 @@ describe("AI article summaries", () => {
     expect(requests[2]).toMatchObject({
       generationConfig: {
         maxOutputTokens: 900,
-        thinkingConfig: { thinkingLevel: "minimal" },
+        thinkingConfig: { thinkingLevel: "medium" },
       },
     });
     expect(database.articles.getArticle(readerId, articleId)?.aiSummary?.text).toBe(

@@ -283,7 +283,7 @@ function geminiAdapter(baseUrl: string): AiProviderAdapter {
           contents: [{ role: "user", parts: requestParts }],
           generationConfig: {
             maxOutputTokens: request.maxOutputTokens,
-            thinkingConfig: { thinkingLevel: request.webSearch ? "medium" : "minimal" },
+            thinkingConfig: { thinkingLevel: "medium" },
           },
           ...(request.webSearch ? { tools: [{ google_search: {} }] } : {}),
         },
