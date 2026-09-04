@@ -118,14 +118,6 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,png,webp}"],
         navigateFallback: appUrl("/index.html"),
         navigateFallbackDenylist: [new RegExp(`^${apiPathPattern}`)],
-        runtimeCaching: demoMode
-          ? []
-          : [
-              {
-                urlPattern: new RegExp(apiPathPattern),
-                handler: "NetworkOnly",
-              },
-            ],
       },
     }),
     ...(demoMode ? [staticDemoPlugin()] : []),
