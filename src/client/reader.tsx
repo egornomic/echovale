@@ -51,12 +51,7 @@ import type {
   TelegramArticleMedia,
   XArticleMedia,
 } from "../shared/types";
-import {
-  nitterPostId,
-  nitterVideoPlaceholderId,
-  nitterVideoPostId,
-  withNitterVideoPlaceholder,
-} from "../shared/x";
+import { withXVideoPlaceholder, xPostId, xVideoPlaceholderId, xVideoPostId } from "../shared/x";
 import { AiMarkdown } from "./ai-markdown";
 import { api, appUrl, errorMessage } from "./api";
 import { articleContentView, shouldShowArticleDescription } from "./article-content";
@@ -2458,7 +2453,7 @@ function ArticleBody({
   showYouTubeDescriptions: boolean;
   onToggleFullContent: (article: Article) => void;
 }) {
-  const xPostId = nitterVideoPostId(article.url, article.feedContentHtml);
+  const xPostId = xVideoPostId(article.url, article.feedContentHtml);
   const translation = shouldShowArticleDescription(article, showYouTubeDescriptions)
     ? translationState.translation
     : null;
@@ -2466,7 +2461,7 @@ function ArticleBody({
   const contentView = articleContentView(article, fullContentVisible);
   const xVideoTargetId =
     xPostId && contentView !== "full" && !translationVisible
-      ? nitterVideoPlaceholderId(article.id)
+      ? xVideoPlaceholderId(article.id)
       : null;
 
   return (
@@ -2550,7 +2545,7 @@ function XPostVideo({
   }, [article.feedContentHtml, targetId]);
 
   if (state.status === "loading") return null;
-  const isQuotedPostVideo = nitterPostId(article.url) !== postId;
+  const isQuotedPostVideo = xPostId(article.url) !== postId;
   if (state.status === "error") {
     const error = (
       <div className="x-media-state x-media-error" role="alert">
@@ -2800,9 +2795,9 @@ function FeedArticleText({
 }) {
   if (!shouldShowArticleDescription(article, showYouTubeDescriptions)) return null;
   if (article.feedContentHtml) {
-    const xPostId = nitterVideoPostId(article.url, article.feedContentHtml);
+    const xPostId = xVideoPostId(article.url, article.feedContentHtml);
     const html = xPostId
-      ? withNitterVideoPlaceholder(article.feedContentHtml, xPostId, article.id)
+      ? withXVideoPlaceholder(article.feedContentHtml, xPostId, article.id)
       : article.feedContentHtml;
     return <ArticleHtml sanitizedHtml={html} />;
   }

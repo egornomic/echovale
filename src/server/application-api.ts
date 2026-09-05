@@ -16,7 +16,7 @@ import {
   type MarkReadRequest,
   type WebFeedConfig,
 } from "../shared/types.js";
-import { nitterVideoPostId } from "../shared/x.js";
+import { xVideoPostId } from "../shared/x.js";
 import { accountActivityTouchBefore } from "./account-activity.js";
 import type { AppDatabase } from "./database.js";
 import type { ExtractionQueue } from "./extraction.js";
@@ -610,7 +610,7 @@ export class ApplicationApi {
 
   async #xMediaForArticle(articleId: number) {
     const article = this.#database.articles.getArticle(this.#userId, articleId);
-    const postId = article ? nitterVideoPostId(article.url, article.feedContentHtml) : null;
+    const postId = article ? xVideoPostId(article.url, article.feedContentHtml) : null;
     if (!postId) throw new ApplicationApiError(404, "X video was not found.");
     try {
       return await this.#xMedia.mediaForPost(postId);

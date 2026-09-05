@@ -21,7 +21,7 @@ export function feedSourceUrl(sourceType: AddFeedSourceType, input: string): str
     if (!xHandle.test(value)) {
       throw new Error("Enter an X handle with 1–15 letters, numbers, or underscores.");
     }
-    return `https://nitter.net/${handle}`;
+    return `https://x.com/${handle}`;
   }
 
   return value;

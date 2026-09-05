@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { parseFeed } from "feedsmith";
 import sanitizeHtml from "sanitize-html";
+import { xFeedUrl } from "../shared/x.js";
 import { firstSafeImageUrl } from "./article-image.js";
 import { youtubeMediaFromUrl } from "./article-media.js";
 import type { ParsedArticle, ParsedFeed } from "./features/shared.js";
-import { nitterFeedUrl } from "./feed-http.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -103,7 +103,7 @@ function authorNames(value: unknown): string | null {
 function normalizeRss(feed: UnknownRecord, feedUrl: string): ParsedFeed {
   const title = string(feed.title) ?? feedUrl;
   const siteUrl = url(feed.link, feedUrl);
-  const titlesArePostText = nitterFeedUrl(feedUrl) !== null;
+  const titlesArePostText = xFeedUrl(feedUrl) !== null;
   const articles = records(feed.items).map((item): ParsedArticle => {
     const dc = record(item.dc);
     const content = record(item.content);

@@ -2,7 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { discoverFeed } from "../../src/server/feed-discovery.js";
-import { githubFeedUrl, nitterFeedUrl } from "../../src/server/feed-http.js";
+import { githubFeedUrl } from "../../src/server/feed-http.js";
+import { xFeedUrl } from "../../src/shared/x.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -54,16 +55,15 @@ describe("feed discovery", () => {
     expect(githubFeedUrl("https://github.com/egornomic/feedfold/issues")).toBeNull();
   });
 
-  it("turns supported Nitter timelines into their published RSS endpoints", () => {
-    expect(nitterFeedUrl("https://nitter.net/banteg")).toBe("https://nitter.net/banteg/rss");
-    expect(nitterFeedUrl("https://nitter.net/banteg/rss#latest")).toBe(
-      "https://nitter.net/banteg/rss",
+  it("gives X timelines a stable feed address", () => {
+    expect(xFeedUrl("https://x.com/banteg")).toBe("https://x.com/banteg/rss");
+    expect(xFeedUrl("https://x.com/banteg/rss#latest")).toBe("https://x.com/banteg/rss");
+    expect(xFeedUrl("https://x.com/banteg/media?filter=videos")).toBe(
+      "https://x.com/banteg/media/rss?filter=videos",
     );
-    expect(nitterFeedUrl("https://nitter.net/banteg/media?filter=videos")).toBe(
-      "https://nitter.net/banteg/media/rss?filter=videos",
-    );
-    expect(nitterFeedUrl("https://nitter.net/banteg/status/123")).toBeNull();
-    expect(nitterFeedUrl("https://x.com/banteg")).toBeNull();
+    expect(xFeedUrl("https://x.com/banteg/status/123")).toBeNull();
+    expect(xFeedUrl("https://x.com/rss")).toBe("https://x.com/rss/rss");
+    expect(xFeedUrl("https://example.com/banteg")).toBeNull();
   });
 
   it("previews direct feeds and detects feeds from both linked pages and site roots", async () => {

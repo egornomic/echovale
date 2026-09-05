@@ -1,11 +1,13 @@
 import { JSDOM } from "jsdom";
 import { FEED_PREVIEW_ARTICLE_LIMIT } from "../shared/feed-preview.js";
 import type { FeedDiscoveryResult, FeedErrorKind, FeedPreview } from "../shared/types.js";
+import { xFeedUrl } from "../shared/x.js";
 import type { ParsedFeed } from "./features/shared.js";
-import { fetchFeed, githubFeedUrl, nitterFeedUrl } from "./feed-http.js";
+import { fetchFeed, githubFeedUrl } from "./feed-http.js";
 import { parseAndNormalizeFeed } from "./feed-parser.js";
 import { PublicNetworkError } from "./public-network.js";
 import { parseAndNormalizeTelegramFeed, telegramChannelUrls } from "./telegram-feed.js";
+import { fetchXFeed, nitterBaseUrls, XFeedError } from "./x-feed.js";
 
 const USER_AGENT = "feedfold/0.1 (+self-hosted feed reader)";
 const FEED_ACCEPT =
@@ -176,7 +178,19 @@ export async function discoverFeed(
   runOutbound: <T>(task: () => Promise<T>) => Promise<T> = (task) => task(),
 ): Promise<FeedDiscoveryResult> {
   const input = new URL(inputUrl).toString();
-  const url = nitterFeedUrl(input) ?? input;
+  const xUrl = xFeedUrl(input, nitterBaseUrls());
+  if (xUrl) {
+    try {
+      return {
+        kind: "published",
+        preview: preview(await fetchXFeed(xUrl, timeoutMs, fetcher, runOutbound), xUrl),
+      };
+    } catch (error) {
+      if (error instanceof XFeedError) throw new FeedDiscoveryError(error.message, error.kind);
+      throw error;
+    }
+  }
+  const url = input;
   const telegram = telegramChannelUrls(url);
   const signal = AbortSignal.timeout(timeoutMs);
   const page = await fetchSource(telegram?.previewUrl ?? url, signal, true, fetcher, runOutbound);

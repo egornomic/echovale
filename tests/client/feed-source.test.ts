@@ -14,8 +14,8 @@ describe("add feed source input", () => {
   it("turns Telegram and X handles into discoverable source URLs", () => {
     expect(feedSourceUrl("telegram", "Example_Channel")).toBe("https://t.me/Example_Channel");
     expect(feedSourceUrl("telegram", "@Example_Channel")).toBe("https://t.me/Example_Channel");
-    expect(feedSourceUrl("x", "banteg")).toBe("https://nitter.net/banteg");
-    expect(feedSourceUrl("x", "@banteg")).toBe("https://nitter.net/banteg");
+    expect(feedSourceUrl("x", "banteg")).toBe("https://x.com/banteg");
+    expect(feedSourceUrl("x", "@banteg")).toBe("https://x.com/banteg");
   });
 
   it("rejects profile URLs where the form requires a handle", () => {

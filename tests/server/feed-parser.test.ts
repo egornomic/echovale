@@ -15,12 +15,12 @@ describe("feed normalization", () => {
     );
     const nitter = parseAndNormalizeFeed(
       `<?xml version="1.0"?><rss version="2.0"><channel>
-        <title>person / @person</title><link>https://nitter.net/person</link>
+        <title>person / @person</title><link>https://x.com/person</link>
         <description>Twitter feed</description><item><guid>two</guid>
         <title>The complete tweet body.</title>
         <description><![CDATA[<p>The complete tweet body.</p>]]></description></item>
       </channel></rss>`,
-      "https://nitter.net/person/rss",
+      "https://x.com/person/rss",
     );
 
     expect(rss.articles[0]).toMatchObject({ title: "", summary: "The complete post body." });

@@ -1,7 +1,9 @@
 import { generateOpml, parseOpml } from "feedsmith";
 import type { Opml } from "feedsmith/types";
 import type { ImportResult } from "../../../shared/types.js";
+import { xFeedUrl } from "../../../shared/x.js";
 import type { QuotaService } from "../../quota.js";
+import { nitterBaseUrls, nitterTimelineUrl } from "../../x-feed.js";
 import type { FeedService } from "../feeds/service.js";
 import type { FolderService } from "../folders/service.js";
 
@@ -16,7 +18,7 @@ function validateFeedUrl(value: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("The feed URL must begin with http:// or https://.");
   }
-  return parsed.toString();
+  return xFeedUrl(parsed.toString(), nitterBaseUrls()) ?? parsed.toString();
 }
 
 export class OpmlService {
@@ -98,7 +100,9 @@ export class OpmlService {
         text: feed.title,
         title: feed.title,
         type: "rss",
-        xmlUrl: feed.feedUrl,
+        xmlUrl: xFeedUrl(feed.feedUrl)
+          ? nitterTimelineUrl(feed.feedUrl, nitterBaseUrls()[0])
+          : feed.feedUrl,
         ...(feed.siteUrl ? { htmlUrl: feed.siteUrl } : {}),
       });
     }

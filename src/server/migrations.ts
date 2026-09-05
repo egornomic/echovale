@@ -4,6 +4,7 @@ import {
   DEFAULT_ARTICLE_TRANSLATION_PROMPT,
   DEFAULT_FACTCHECK_PROMPT,
 } from "../shared/ai-prompts.js";
+import { xFeedUrl } from "../shared/x.js";
 import {
   cleanArticleHtml,
   removeGeneratedArticleQuoteMarkers,
@@ -12,6 +13,7 @@ import {
 import { firstSafeImageUrl } from "./article-image.js";
 import { youtubeMediaFromUrl } from "./article-media.js";
 import { removeTelegramFeedImages } from "./telegram-feed.js";
+import { xContentHtml, xContentUrl } from "./x-feed.js";
 
 interface Migration {
   sql: string | ((webFeedPollIntervalMinutes: number) => string);
@@ -1373,6 +1375,49 @@ const migrations: Migration[] = [
       CREATE INDEX quota_leases_resource_expiry_idx
         ON quota_leases(resource, expires_at);
     `,
+  },
+  {
+    sql: "",
+    after(database) {
+      const sources = database
+        .prepare(`
+        SELECT id, feed_url AS feedUrl, site_url AS siteUrl
+        FROM feed_sources WHERE source_kind = 'published'
+      `)
+        .all() as Array<{ id: number; feedUrl: string; siteUrl: string | null }>;
+      const updateSource = database.prepare(`
+        UPDATE feed_sources SET feed_url = ?, site_url = ?, etag = NULL, last_modified = NULL,
+          next_poll_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?
+      `);
+      const selectArticles = database.prepare(`
+        SELECT id, url, image_url AS imageUrl, feed_content_html AS feedHtml, content_html AS contentHtml
+        FROM articles WHERE source_id = ?
+      `);
+      const updateArticle = database.prepare(`
+        UPDATE articles SET title = '', url = ?, image_url = ?, feed_content_html = ?, content_html = ? WHERE id = ?
+      `);
+      for (const source of sources) {
+        const feedUrl = xFeedUrl(source.feedUrl, ["https://nitter.net"]);
+        if (!feedUrl || new URL(source.feedUrl).hostname !== "nitter.net") continue;
+        updateSource.run(feedUrl, xContentUrl(source.siteUrl, source.feedUrl), source.id);
+        const articles = selectArticles.all(source.id) as Array<{
+          id: number;
+          url: string | null;
+          imageUrl: string | null;
+          feedHtml: string | null;
+          contentHtml: string | null;
+        }>;
+        for (const article of articles) {
+          updateArticle.run(
+            xContentUrl(article.url, source.feedUrl),
+            xContentUrl(article.imageUrl, source.feedUrl),
+            xContentHtml(article.feedHtml, source.feedUrl),
+            xContentHtml(article.contentHtml, source.feedUrl),
+            article.id,
+          );
+        }
+      }
+    },
   },
 ];
 

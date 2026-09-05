@@ -9,7 +9,7 @@ import type {
   MarkReadRequest,
 } from "../../../shared/types.js";
 import { MARK_READ_AGE_DAYS } from "../../../shared/types.js";
-import { nitterVideoPostId } from "../../../shared/x.js";
+import { xVideoPostId } from "../../../shared/x.js";
 import type { ExtractionQueue } from "../../extraction.js";
 import { QuotaExceededError, type QuotaService } from "../../quota.js";
 import type { TelegramMediaService } from "../../telegram-media.js";
@@ -71,7 +71,7 @@ export async function articleRoutes(
 
   const resolveXMedia = async (accountId: number, articleId: number, reply: FastifyReply) => {
     const article = articles.getArticle(accountId, articleId);
-    const postId = article ? nitterVideoPostId(article.url, article.feedContentHtml) : null;
+    const postId = article ? xVideoPostId(article.url, article.feedContentHtml) : null;
     if (!postId) {
       missing(reply, "X video");
       return null;

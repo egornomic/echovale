@@ -6,7 +6,9 @@ import type {
   FeedPollIntervalMinutes,
   WebFeedConfig,
 } from "../../../shared/types.js";
+import { xFeedUrl } from "../../../shared/x.js";
 import { accountActivityCutoff } from "../../account-activity.js";
+import { nitterBaseUrls } from "../../x-feed.js";
 import type { FolderRepository } from "../folders/repository.js";
 import {
   type FeedRecord,
@@ -114,7 +116,7 @@ export class FeedRepository {
   ): Feed {
     this.folders.assertFolderExists(userId, input.folderId);
     const timestamp = now();
-    const feedUrl = new URL(input.feedUrl).toString();
+    const feedUrl = xFeedUrl(input.feedUrl, nitterBaseUrls()) ?? new URL(input.feedUrl).toString();
     const sourceId = this.publishedSource(feedUrl, userId);
     if (input.siteUrl !== undefined) {
       this.sqlite
@@ -153,7 +155,10 @@ export class FeedRepository {
     const existing = this.getFeed(userId, id);
     if (!existing) return null;
     this.folders.assertFolderExists(userId, input.folderId);
-    const feedUrl = input.feedUrl ? new URL(input.feedUrl).toString() : existing.feedUrl;
+    const feedUrl = input.feedUrl
+      ? ((existing.sourceKind === "published" ? xFeedUrl(input.feedUrl, nitterBaseUrls()) : null) ??
+        new URL(input.feedUrl).toString())
+      : existing.feedUrl;
     if (existing.sourceKind === "web" && feedUrl !== existing.feedUrl) {
       throw new Error("To change a web feed URL, edit its page selection.");
     }

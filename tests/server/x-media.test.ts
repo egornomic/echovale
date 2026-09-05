@@ -133,7 +133,7 @@ describe("X article media", () => {
     if (!reader || !otherReader) throw new Error("Expected test accounts");
 
     const feed = database.feeds.createFeed(reader.user.id, {
-      feedUrl: "https://nitter.net/marclou/rss",
+      feedUrl: "https://x.com/marclou/rss",
       title: "Marc Lou / @marclou",
       paused: true,
     });
@@ -143,17 +143,17 @@ describe("X article media", () => {
       lastModified: null,
       parsed: {
         title: feed.title,
-        siteUrl: "https://nitter.net/marclou",
+        siteUrl: "https://x.com/marclou",
         articles: [
           {
             externalId: OUTER_POST_ID,
             title: "A post quoting native video",
-            url: `https://nitter.net/marclou/status/${OUTER_POST_ID}#m`,
+            url: `https://x.com/marclou/status/${OUTER_POST_ID}#m`,
             author: "Marc Lou",
             publishedAt: "2026-08-09T10:00:00.000Z",
             summary: "A post with video.",
             imageUrl: POSTER_URL,
-            feedContentHtml: `<p>Post text.</p><a href="https://nitter.net/marclou/status/${VIDEO_POST_ID}#m"><br>Video<br><img src="https://nitter.net/pic/amplify_video_thumb%2Ffixture.jpg"></a>`,
+            feedContentHtml: `<p>Post text.</p><a href="https://x.com/marclou/status/${VIDEO_POST_ID}#m"><br>Video<br><img src="https://pbs.twimg.com/amplify_video_thumb/fixture.jpg"></a>`,
           },
         ],
       },

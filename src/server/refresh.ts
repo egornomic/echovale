@@ -1,10 +1,12 @@
 import type { FeedErrorKind, FeedHealthStatus, RefreshResult } from "../shared/types.js";
+import { xFeedUrl } from "../shared/x.js";
 import type { FeedService } from "./features/feeds/service.js";
 import type { FeedRecord, ParsedFeed } from "./features/shared.js";
-import { fetchFeed, nitterFeedUrl } from "./feed-http.js";
+import { fetchFeed } from "./feed-http.js";
 import { parseAndNormalizeFeed, parseAndNormalizeWordPressPosts } from "./feed-parser.js";
 import { parseAndNormalizeTelegramFeed, telegramChannelUrls } from "./telegram-feed.js";
 import { WebFeedError, type WebFeedService } from "./web-feed.js";
+import { fetchXFeed, nitterBaseUrls, XFeedError } from "./x-feed.js";
 
 const USER_AGENT = "feedfold/0.1 (+self-hosted feed reader)";
 
@@ -65,7 +67,7 @@ function failureDetails(
       healthStatus: error.kind === "selection_broken" ? "needs_attention" : "failing",
     };
   }
-  if (error instanceof FeedHttpError) {
+  if (error instanceof FeedHttpError || error instanceof XFeedError) {
     return { httpStatus: error.status, errorKind: error.kind, healthStatus: "failing" };
   }
   if (
@@ -97,7 +99,9 @@ export class FeedRefreshService {
     private readonly webFeedService?: WebFeedService,
     private readonly feedFetcher: typeof fetchFeed = fetchFeed,
     private readonly maxPending = feeds.refreshQueueLimit() ?? Number.POSITIVE_INFINITY,
-  ) {}
+  ) {
+    nitterBaseUrls();
+  }
 
   start(): void {
     if (this.stopped || this.timer) return;
@@ -194,8 +198,22 @@ export class FeedRefreshService {
         return;
       }
 
+      const xUrl = xFeedUrl(feed.feedUrl, nitterBaseUrls());
+      if (xUrl) {
+        const parsed = await fetchXFeed(xUrl, this.timeoutMs, this.feedFetcher, (task) =>
+          this.feeds.runOutbound(task),
+        );
+        this.feeds.completeSourceRefresh(feed.id, {
+          httpStatus: 200,
+          etag: null,
+          lastModified: null,
+          scheduled,
+          parsed,
+        });
+        return;
+      }
       const telegram = telegramChannelUrls(feed.feedUrl);
-      const sourceUrl = telegram?.previewUrl ?? nitterFeedUrl(feed.feedUrl) ?? feed.feedUrl;
+      const sourceUrl = telegram?.previewUrl ?? feed.feedUrl;
       const headers = new Headers({
         Accept:
           "application/atom+xml,application/rss+xml,application/feed+json,application/json;q=0.9,application/xml;q=0.8,text/xml;q=0.8,*/*;q=0.5",

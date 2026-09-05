@@ -12,6 +12,7 @@ import {
   DEFAULT_ARTICLE_TRANSLATION_PROMPT,
   DEFAULT_CUSTOM_PROMPTS,
 } from "../../src/shared/ai-prompts.js";
+import { xVideoPostId } from "../../src/shared/x.js";
 
 const directories: string[] = [];
 
@@ -26,6 +27,62 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("moves existing X subscriptions and stored media off Nitter without changing article state", () => {
+    const database = new AppDatabase(":memory:");
+    try {
+      const feed = database.feeds.createFeed(1, { feedUrl: "https://nitter.net/person/rss" });
+      database.feeds.completeRefresh(feed.id, {
+        httpStatus: 200,
+        etag: "old-instance-etag",
+        lastModified: null,
+        parsed: {
+          title: "person / @person",
+          siteUrl: "https://nitter.net/person",
+          articles: [
+            {
+              externalId: "2095678312773554533",
+              title: "A video post",
+              author: "person",
+              url: "https://nitter.net/person/status/2095678312773554533#m",
+              publishedAt: null,
+              summary: "A video post",
+              imageUrl: "https://nitter.net/pic/media%2Fposter.jpg",
+              feedContentHtml:
+                '<p>A video post</p><a href="https://nitter.net/person/status/2095678312773554533#m"><br>Video<br><img src="https://nitter.net/pic/media%2Fposter.jpg"></a>',
+            },
+          ],
+        },
+      });
+      const article = database.articles.listArticles(1, { state: "all" })[0];
+      if (!article) throw new Error("Expected the existing X post");
+      database.articles.updateArticleState(1, article.id, { isRead: true, isStarred: true });
+      database.connection.prepare("DELETE FROM migrations WHERE version = 42").run();
+
+      migrateDatabase(database.connection, 180, 42);
+
+      expect(database.feeds.getFeed(1, feed.id)).toMatchObject({
+        feedUrl: "https://x.com/person/rss",
+        siteUrl: "https://x.com/person",
+        totalCount: 1,
+      });
+      const migrated = database.articles.getArticle(1, article.id);
+      expect(migrated).toMatchObject({
+        id: article.id,
+        isRead: true,
+        isStarred: true,
+        title: "",
+        url: "https://x.com/person/status/2095678312773554533#m",
+        imageUrl: "https://pbs.twimg.com/media/poster.jpg",
+      });
+      expect(xVideoPostId(migrated?.url, migrated?.feedContentHtml)).toBe("2095678312773554533");
+      expect(articleBody(migrated?.feedContentHtml ?? "").querySelector("img")?.src).toBe(
+        "https://pbs.twimg.com/media/poster.jpg",
+      );
+    } finally {
+      database.close();
+    }
+  });
+
   it("merges duplicate account-owned feeds without merging personal article state", () => {
     const sqlite = new Sqlite(":memory:");
     sqlite.pragma("foreign_keys = ON");
@@ -664,9 +721,8 @@ Return only the summary in plain text.`,
         name: "Default order",
         sortDirection: "newest",
       });
-      expect(database.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        41,
-      );
+      expect(database.feeds.getFeed(1, 2)?.feedUrl).toBe("https://x.com/person/rss");
+      expect(database.articles.getArticle(1, 5)?.url).toBe("https://x.com/person/status/5");
       expect(
         database.connection.prepare("SELECT last_active_at FROM users WHERE id = 1").pluck().get(),
       ).not.toBe("");
@@ -723,9 +779,8 @@ Return only the summary in plain text.`,
         id: 1,
         username: "reader",
       });
-      expect(reopened.connection.prepare("SELECT MAX(version) FROM migrations").pluck().get()).toBe(
-        41,
-      );
+      expect(reopened.feeds.getFeed(1, 2)?.feedUrl).toBe("https://x.com/person/rss");
+      expect(reopened.articles.getArticle(1, 5)?.url).toBe("https://x.com/person/status/5");
       expect(
         reopened.connection.prepare("SELECT image_url FROM articles WHERE id = 2").pluck().get(),
       ).toBe("https://example.test/hero.jpg");
