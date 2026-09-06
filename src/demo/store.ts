@@ -257,7 +257,7 @@ export class DemoStore {
     const title = input.title?.trim() || titleFromUrl(input.siteUrl ?? input.feedUrl);
     const feed: Feed = {
       id: idAfter(this.data.feeds),
-      folderId: input.folderId,
+      folderId: input.folderId ?? null,
       title,
       feedUrl: input.feedUrl,
       siteUrl: input.siteUrl ?? null,
@@ -269,7 +269,7 @@ export class DemoStore {
       pollIntervalMinutes: this.data.settings.pollIntervalMinutes,
       unreadCount: 0,
       totalCount: 0,
-      paused: false,
+      paused: input.sourceKind === "published" && (input.paused ?? false),
       refreshing: false,
       lastPostAt: null,
       lastAttemptAt: now,
@@ -315,13 +315,14 @@ export class DemoStore {
   }
 
   createFolder(input: FolderInput): Folder {
-    const siblings = this.data.folders.filter((folder) => folder.parentId === input.parentId);
+    const parentId = input.parentId ?? null;
+    const siblings = this.data.folders.filter((folder) => folder.parentId === parentId);
     const folder: Folder = {
       id: idAfter(this.data.folders),
-      parentId: input.parentId,
+      parentId,
       name: input.name,
-      position: Math.max(-1, ...siblings.map((sibling) => sibling.position)) + 1,
-      sortDirection: input.sortDirection,
+      position: input.position ?? Math.max(-1, ...siblings.map((sibling) => sibling.position)) + 1,
+      sortDirection: input.sortDirection ?? "newest",
       unreadCount: 0,
     };
     this.data.folders.push(folder);
@@ -362,6 +363,9 @@ export class DemoStore {
     const rule: Rule = {
       id: idAfter(this.data.rules),
       ...input,
+      feedId: input.feedId ?? null,
+      folderId: input.folderId ?? null,
+      enabled: input.enabled ?? true,
       matchedCount: 0,
       createdAt: now,
       updatedAt: now,

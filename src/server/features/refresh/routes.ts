@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { inputs } from "../../../shared/api-inputs.js";
 import type { FeedRefreshService } from "../../refresh.js";
 import { type AuthService, sessionToken } from "../auth/service.js";
 import type { FeedService } from "../feeds/service.js";
@@ -76,9 +76,7 @@ export async function refreshRoutes(
   });
 
   app.post("/api/refresh", async (request) => {
-    const body = z
-      .object({ feedIds: z.array(z.number().int().positive()).max(1_000).optional() })
-      .parse(request.body ?? {});
+    const body = inputs.refresh.parse(request.body ?? {});
     const feedIds = feeds.getManualRefreshFeedIds(userId(request), body.feedIds);
     return refreshService.request(feedIds);
   });

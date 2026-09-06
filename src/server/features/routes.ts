@@ -1,22 +1,10 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { resourceId } from "../../shared/api-inputs.js";
 
 export type UserId = (request: FastifyRequest) => number;
 
-export const idParams = z.object({ id: z.coerce.number().int().positive() });
-export const nullableId = z.number().int().positive().nullable();
-export const httpUrl = z
-  .string()
-  .trim()
-  .min(1)
-  .refine((value) => {
-    try {
-      const url = new URL(value);
-      return url.protocol === "http:" || url.protocol === "https:";
-    } catch {
-      return false;
-    }
-  }, "Enter a URL that begins with http:// or https://.");
+export const idParams = z.object({ id: z.coerce.number().pipe(resourceId) });
 
 export function missing(reply: FastifyReply, resource: string): FastifyReply {
   return reply.code(404).send({ error: `${resource} was not found.` });

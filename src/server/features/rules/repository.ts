@@ -120,6 +120,9 @@ export class RuleRepository {
     feedId: number | null | undefined,
     folderId: number | null | undefined,
   ): void {
+    if (feedId && folderId) {
+      throw new InvalidRequestError("Choose either one feed or one folder for this rule.");
+    }
     if (
       feedId !== null &&
       feedId !== undefined &&

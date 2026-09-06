@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
-import { idParams, missing, nullableId, type UserId } from "../routes.js";
+import { inputs } from "../../../shared/api-inputs.js";
+import { idParams, missing, type UserId } from "../routes.js";
 import type { RuleRepository } from "./repository.js";
 
 export async function ruleRoutes(
@@ -11,42 +11,15 @@ export async function ruleRoutes(
     rules: rules.listRules(userId(request)),
   }));
 
-  const ruleCondition = z.object({
-    field: z.enum(["title", "author", "summary", "content", "media", "any"]),
-    pattern: z.string().trim().min(1).max(500),
-  });
-  const ruleFields = z
-    .object({
-      name: z.string().trim().min(1).max(200),
-      feedId: nullableId.optional(),
-      folderId: nullableId.optional(),
-      conditions: z.array(ruleCondition).min(1),
-      conditionOperator: z.enum(["and", "or"]),
-      action: z.enum(["hide", "keep", "mark_read"]),
-      enabled: z.boolean().optional(),
-    })
-    .strict();
-  const ruleBody = ruleFields.refine((value) => !(value.feedId && value.folderId), {
-    message: "Choose either one feed or one folder for this rule.",
-  });
-
   app.post("/api/rules", async (request) =>
-    rules.createRule(userId(request), ruleBody.parse(request.body)),
+    rules.createRule(userId(request), inputs.createRule.parse(request.body)),
   );
 
   app.patch("/api/rules/:id", async (request, reply) => {
     const { id } = idParams.parse(request.params);
     const accountId = userId(request);
-    const existing = rules.getRule(accountId, id);
-    if (!existing) return missing(reply, "Rule");
-    const body = ruleFields.partial().parse(request.body);
-    if (
-      (body.feedId === undefined ? existing.feedId : body.feedId) &&
-      (body.folderId === undefined ? existing.folderId : body.folderId)
-    ) {
-      return reply.code(400).send({ error: "Choose either one feed or one folder for this rule." });
-    }
-    return rules.updateRule(accountId, id, body);
+    const body = inputs.updateRule.parse(request.body);
+    return rules.updateRule(accountId, id, body) ?? missing(reply, "Rule");
   });
 
   app.delete("/api/rules/:id", async (request, reply) => {

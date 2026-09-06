@@ -1,11 +1,4 @@
-import type {
-  FeedSourceKind,
-  FolderSortDirection,
-  RuleAction,
-  RuleCondition,
-  RuleConditionOperator,
-  WebFeedConfig,
-} from "../shared/types.js";
+export type { FeedInput, FeedUpdateInput, FolderInput, RuleInput } from "../shared/api-inputs.js";
 
 export const AUTH_REQUIRED_EVENT = "feedfold:auth-required";
 
@@ -34,35 +27,6 @@ export class ApiError extends Error {
     this.code = code;
     this.operationId = operationId;
   }
-}
-
-export interface FeedInput {
-  title?: string;
-  feedUrl: string;
-  siteUrl?: string | null;
-  folderId: number | null;
-  sourceKind: FeedSourceKind;
-  webConfig?: WebFeedConfig;
-}
-
-export type FeedUpdateInput = Partial<Omit<FeedInput, "sourceKind" | "webConfig">> & {
-  paused?: boolean;
-};
-
-export interface FolderInput {
-  name: string;
-  parentId: number | null;
-  sortDirection: FolderSortDirection;
-}
-
-export interface RuleInput {
-  name: string;
-  feedId: number | null;
-  folderId: number | null;
-  conditions: RuleCondition[];
-  conditionOperator: RuleConditionOperator;
-  action: RuleAction;
-  enabled: boolean;
 }
 
 export function errorMessage(error: unknown): string {

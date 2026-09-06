@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { inputs } from "../../../shared/api-inputs.js";
 import { QuotaExceededError } from "../../quota.js";
 import type { FeedRefreshService } from "../../refresh.js";
 import type { UserId } from "../routes.js";
@@ -14,7 +14,7 @@ export async function opmlRoutes(
   }: { opml: OpmlService; refreshService: FeedRefreshService; userId: UserId },
 ): Promise<void> {
   app.post("/api/opml/import", async (request, reply) => {
-    const { opml: source } = z.object({ opml: z.string().min(1) }).parse(request.body);
+    const { opml: source } = inputs.importOpml.parse(request.body);
     try {
       const { feedIds, ...result } = opml.import(userId(request), source);
       refreshService.request(feedIds);

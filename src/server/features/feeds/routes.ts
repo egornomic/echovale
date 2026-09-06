@@ -1,30 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { inputs } from "../../../shared/api-inputs.js";
 import type { WebFeedConfig } from "../../../shared/types.js";
 import { discoverFeed, FeedDiscoveryError } from "../../feed-discovery.js";
 import type { QuotaService } from "../../quota.js";
 import type { FeedRefreshService } from "../../refresh.js";
 import { WebFeedError, type WebFeedService } from "../../web-feed.js";
-import { httpUrl, idParams, missing, nullableId, type UserId } from "../routes.js";
+import { idParams, missing, type UserId } from "../routes.js";
 import type { FeedService } from "./service.js";
-
-const selector = z.string().trim().min(1).max(2_000);
-const webFeedConfig = z
-  .object({
-    pageUrl: httpUrl,
-    selectors: z
-      .object({
-        item: selector,
-        title: selector,
-        link: selector,
-        date: selector.nullable(),
-        author: selector.nullable(),
-        summary: selector.nullable(),
-        image: selector.nullable(),
-      })
-      .strict(),
-  })
-  .strict();
 
 export async function feedRoutes(
   app: FastifyInstance,
@@ -55,7 +38,7 @@ export async function feedRoutes(
   });
 
   app.post("/api/feeds/discover", async (request, reply) => {
-    const { url } = z.object({ url: httpUrl }).parse(request.body);
+    const { url } = inputs.url.parse(request.body);
     try {
       const accountId = userId(request);
       quotas.consume("feed_discovery", accountId);
@@ -76,7 +59,7 @@ export async function feedRoutes(
         .code(503)
         .send({ error: "Web feed loading is unavailable. Check the server's Chromium setup." });
     }
-    const { url } = z.object({ url: httpUrl }).strict().parse(request.body);
+    const { url } = inputs.url.parse(request.body);
     return webFeedService.analyze(String(userId(request)), url);
   });
 
@@ -104,30 +87,7 @@ export async function feedRoutes(
   );
 
   app.post("/api/feeds", async (request, reply) => {
-    const body = z
-      .discriminatedUnion("sourceKind", [
-        z
-          .object({
-            sourceKind: z.literal("published"),
-            title: z.string().trim().min(1).max(300).optional(),
-            feedUrl: httpUrl,
-            siteUrl: httpUrl.nullable().optional(),
-            folderId: nullableId.optional(),
-            paused: z.boolean().optional(),
-          })
-          .strict(),
-        z
-          .object({
-            sourceKind: z.literal("web"),
-            title: z.string().trim().min(1).max(300).optional(),
-            feedUrl: httpUrl,
-            siteUrl: httpUrl.nullable().optional(),
-            folderId: nullableId.optional(),
-            webConfig: webFeedConfig,
-          })
-          .strict(),
-      ])
-      .parse(request.body);
+    const body = inputs.createFeed.parse(request.body);
     const accountId = userId(request);
     feeds.assertCanCreateFeed(accountId);
     if (body.sourceKind === "published") {
@@ -179,7 +139,7 @@ export async function feedRoutes(
         .send({ error: "Web feed loading is unavailable. Check the server's Chromium setup." });
     }
     const { id } = idParams.parse(request.params);
-    const { config } = z.object({ config: webFeedConfig }).strict().parse(request.body);
+    const { config } = inputs.updateWebFeedSelection.parse(request.body);
     const accountId = userId(request);
     const feed = feeds.getFeed(accountId, id);
     if (!feed) return missing(reply, "Feed");
@@ -200,15 +160,7 @@ export async function feedRoutes(
 
   app.patch("/api/feeds/:id", async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const body = z
-      .object({
-        title: z.string().trim().min(1).max(300).optional(),
-        feedUrl: httpUrl.optional(),
-        siteUrl: httpUrl.nullable().optional(),
-        folderId: nullableId.optional(),
-        paused: z.boolean().optional(),
-      })
-      .parse(request.body);
+    const body = inputs.updateFeed.parse(request.body);
     const feed = feeds.updateFeed(userId(request), id, body);
     return feed ?? missing(reply, "Feed");
   });
