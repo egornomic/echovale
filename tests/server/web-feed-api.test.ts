@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { InjectOptions } from "fastify";
+import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/server/app.js";
 import { AppDatabase } from "../../src/server/database.js";
@@ -218,6 +219,42 @@ describe("authenticated web-feed API", () => {
     expect(ownerSnapshot.statusCode).toBe(200);
     expect(ownerSnapshot.headers["content-type"]).toContain("text/html");
     expect(ownerSnapshot.body).toContain("Alpha release");
+
+    const applicationUrl = await app.listen({ host: "127.0.0.1", port: 0 });
+    const browser = await chromium.launch();
+    cleanups.push(() => browser.close());
+    const context = await browser.newContext();
+    await context.addCookies([
+      {
+        name: "feedfold_session",
+        value: readerCookie.slice("feedfold_session=".length),
+        url: applicationUrl,
+      },
+    ]);
+    const page = await context.newPage();
+    await page.goto(`${applicationUrl}/health`);
+    await page.evaluate(({ snapshotId, messageToken }) => {
+      window.addEventListener("message", ({ data }) => {
+        if (data?.type === "feedfold:web-feed-select" && data.messageToken === messageToken) {
+          document.body.dataset.selectedGroup = data.candidateId;
+        }
+      });
+      const frame = document.createElement("iframe");
+      frame.setAttribute("sandbox", "allow-scripts");
+      frame.src = `/api/web-feed-snapshots/${snapshotId}`;
+      document.body.append(frame);
+    }, analysis);
+    await page
+      .frameLocator("iframe")
+      .locator(`[data-feedfold-candidates~="${candidate.id}"]`)
+      .first()
+      .click();
+    await page.waitForFunction(() => Boolean(document.body.dataset.selectedGroup));
+    expect(analysis.candidates.map(({ id }) => id)).toContain(
+      await page.evaluate(() => document.body.dataset.selectedGroup),
+    );
+    await browser.close();
+
     const otherSnapshot = await request(otherCookie, {
       method: "GET",
       url: `/api/web-feed-snapshots/${analysis.snapshotId}`,

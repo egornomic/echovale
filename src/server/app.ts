@@ -28,6 +28,7 @@ import { settingsRoutes } from "./features/settings/routes.js";
 import { registerOperationalLogging } from "./logging.js";
 import { QuotaExceededError } from "./quota.js";
 import type { FeedRefreshService } from "./refresh.js";
+import { responsePolicies } from "./response-policy.js";
 import { TelegramMediaService } from "./telegram-media.js";
 import { WebFeedError, type WebFeedService } from "./web-feed.js";
 import { XMediaService } from "./x-media.js";
@@ -138,30 +139,12 @@ export async function createApp(services: AppServices): Promise<FastifyInstance>
   });
 
   app.addHook("onSend", async (request, reply) => {
-    reply.header(
-      "Content-Security-Policy",
-      [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: http: https:",
-        "media-src 'self' blob: http: https:",
-        "font-src 'self' data:",
-        "connect-src 'self'",
-        "frame-src 'self' https://www.youtube.com",
-        "object-src 'none'",
-        "base-uri 'none'",
-        "form-action 'self'",
-        "frame-ancestors 'none'",
-      ].join("; "),
-    );
+    reply.headers(responsePolicies[request.routeOptions.config.responsePolicy ?? "application"]);
     reply.header(
       "Permissions-Policy",
       "camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self)",
     );
-    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("X-Frame-Options", "DENY");
     if (request.protocol === "https" || services.publicOrigin?.startsWith("https://")) {
       reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }

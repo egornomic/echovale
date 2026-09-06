@@ -80,31 +80,28 @@ export async function feedRoutes(
     return webFeedService.analyze(String(userId(request)), url);
   });
 
-  app.get("/api/web-feed-snapshots/:id", async (request, reply) => {
-    if (!webFeedService) return missing(reply, "Page preview");
-    const { id } = z.object({ id: z.string().min(1).max(200) }).parse(request.params);
-    try {
-      const snapshot = webFeedService.snapshot(String(userId(request)), id);
-      return reply
-        .type("text/html; charset=utf-8")
-        .header(
-          "Content-Security-Policy",
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
-        )
-        .header("Cross-Origin-Resource-Policy", "same-origin")
-        .header("Referrer-Policy", "no-referrer")
-        .header("X-Content-Type-Options", "nosniff")
-        .send(snapshot);
-    } catch (error) {
-      if (error instanceof WebFeedError) {
-        return reply.code(404).send({
-          error: "This page preview has expired. Reload the page, then choose the entries again.",
-          code: error.kind,
-        });
+  app.get(
+    "/api/web-feed-snapshots/:id",
+    {
+      config: { responsePolicy: "webFeedSnapshot" },
+    },
+    async (request, reply) => {
+      if (!webFeedService) return missing(reply, "Page preview");
+      const { id } = z.object({ id: z.string().min(1).max(200) }).parse(request.params);
+      try {
+        const snapshot = webFeedService.snapshot(String(userId(request)), id);
+        return reply.type("text/html; charset=utf-8").send(snapshot);
+      } catch (error) {
+        if (error instanceof WebFeedError) {
+          return reply.code(404).send({
+            error: "This page preview has expired. Reload the page, then choose the entries again.",
+            code: error.kind,
+          });
+        }
+        throw error;
       }
-      throw error;
-    }
-  });
+    },
+  );
 
   app.post("/api/feeds", async (request, reply) => {
     const body = z
