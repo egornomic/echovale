@@ -27,7 +27,7 @@ export class FeedIngestionService {
     private readonly quotas: QuotaService,
   ) {}
 
-  initializeSubscription(feedId: number, sourceId: number): boolean {
+  initializeSubscription(userId: number, feedId: number, sourceId: number): boolean {
     return this.sqlite.transaction(() => {
       if (!this.feeds.sourceHasSuccessfulRefresh(sourceId)) return false;
       const delivered = this.articles.deliverSourceArticles(
@@ -40,7 +40,7 @@ export class FeedIngestionService {
         Number(this.sqlite.prepare("SELECT user_id FROM feeds WHERE id = ?").pluck().get(feedId)),
       );
       this.feeds.markSubscriptionInitialized(feedId, new Date().toISOString());
-      this.rules.recomputeRulesForArticles(delivered);
+      this.rules.recomputeRulesForFeedArticles(userId, feedId, delivered);
       return true;
     })();
   }
@@ -92,7 +92,7 @@ export class FeedIngestionService {
     const initializedAt = new Date().toISOString();
     for (const subscription of this.feeds.listDeliverableSourceSubscriptions(sourceId)) {
       try {
-        const delivered = this.sqlite.transaction(() => {
+        this.sqlite.transaction(() => {
           const delivered = this.articles.deliverSourceArticles(
             subscription.feedId,
             sourceId,
@@ -101,9 +101,12 @@ export class FeedIngestionService {
           );
           this.quotas.assertAccountStorage(subscription.userId);
           this.feeds.markSubscriptionInitialized(subscription.feedId, initializedAt);
-          return delivered;
+          this.rules.recomputeRulesForFeedArticles(
+            subscription.userId,
+            subscription.feedId,
+            [...delivered].filter((articleId) => !changedArticleIds.has(articleId)),
+          );
         })();
-        for (const articleId of delivered) changedArticleIds.add(articleId);
       } catch (error) {
         if (!(error instanceof QuotaExceededError)) throw error;
       }

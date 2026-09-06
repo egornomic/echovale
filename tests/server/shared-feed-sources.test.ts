@@ -10,6 +10,52 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
+function sharedArticleFeed() {
+  return {
+    title: "Shared feed",
+    siteUrl: null,
+    articles: [
+      {
+        externalId: "shared",
+        title: "Shared article",
+        url: "https://publisher.example.test/shared",
+        author: null,
+        publishedAt: null,
+        summary: "",
+        imageUrl: null,
+        feedContentHtml: null,
+      },
+    ],
+  };
+}
+
+function publishSharedArticle(database: AppDatabase, feedId: number): void {
+  database.feeds.completeRefresh(feedId, {
+    httpStatus: 200,
+    etag: null,
+    lastModified: null,
+    parsed: sharedArticleFeed(),
+  });
+}
+
+function manuallyUnreadSharedArticle(
+  database: AppDatabase,
+  userId: number,
+  feedId: number,
+): number {
+  const sharedArticle = database.articles.listArticles(userId, { state: "all" })[0];
+  if (!sharedArticle) throw new Error("Shared article was not delivered");
+  database.rules.createRule(userId, {
+    name: "Mark shared articles read",
+    feedId,
+    conditions: [{ field: "title", pattern: "shared article" }],
+    conditionOperator: "and",
+    action: "mark_read",
+  });
+  database.articles.updateArticleState(userId, sharedArticle.id, { isRead: false });
+  return sharedArticle.id;
+}
+
 describe("shared feed sources", () => {
   it("fetches and stores a public feed once while keeping delivery state account-specific", async () => {
     const database = new AppDatabase(":memory:");
@@ -95,6 +141,91 @@ describe("shared feed sources", () => {
     expect(database.ai.getArticleAiSummary(secondUser.id, firstArticle.id)?.text).toBe(
       "Second account summary",
     );
+  });
+
+  it("keeps another account's manually unread article unread when a shared feed moves", async () => {
+    const database = new AppDatabase(":memory:");
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
+    const organizingUser = (await auth.register("organizing-reader", "reader-password"))?.user;
+    const readingUser = (await auth.register("reading-reader", "reader-password"))?.user;
+    if (!organizingUser || !readingUser) throw new Error("Test accounts were not created");
+    cleanups.push(() => database.close());
+
+    const originalFolder = database.folders.createFolder(organizingUser.id, { name: "Original" });
+    const destinationFolder = database.folders.createFolder(organizingUser.id, {
+      name: "Destination",
+    });
+    const parentFolder = database.folders.createFolder(organizingUser.id, { name: "Parent" });
+    const feedUrl = "https://publisher.example.test/shared.xml";
+    const organizingFeed = database.feeds.createFeed(organizingUser.id, {
+      feedUrl,
+      folderId: originalFolder.id,
+    });
+    const readingFeed = database.feeds.createFeed(readingUser.id, { feedUrl });
+    publishSharedArticle(database, organizingFeed.id);
+    const sharedArticleId = manuallyUnreadSharedArticle(database, readingUser.id, readingFeed.id);
+
+    database.feeds.updateFeed(organizingUser.id, organizingFeed.id, {
+      folderId: destinationFolder.id,
+    });
+    expect(database.articles.getArticle(readingUser.id, sharedArticleId)).toMatchObject({
+      isRead: false,
+    });
+
+    database.folders.updateFolder(organizingUser.id, destinationFolder.id, {
+      parentId: parentFolder.id,
+    });
+    expect(database.articles.getArticle(readingUser.id, sharedArticleId)).toMatchObject({
+      isRead: false,
+    });
+  });
+
+  it("does not reapply existing subscriber rules when another account joins a shared source", async () => {
+    const database = new AppDatabase(":memory:");
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
+    const readingUser = (await auth.register("existing-reader", "reader-password"))?.user;
+    const joiningUser = (await auth.register("joining-reader", "reader-password"))?.user;
+    if (!readingUser || !joiningUser) throw new Error("Test accounts were not created");
+    cleanups.push(() => database.close());
+
+    const feedUrl = "https://publisher.example.test/archive.xml";
+    const readingFeed = database.feeds.createFeed(readingUser.id, { feedUrl });
+    publishSharedArticle(database, readingFeed.id);
+    const sharedArticleId = manuallyUnreadSharedArticle(database, readingUser.id, readingFeed.id);
+
+    const joiningFeed = database.feeds.createFeed(joiningUser.id, { feedUrl });
+
+    expect(database.feeds.getFeed(joiningUser.id, joiningFeed.id)).toMatchObject({ totalCount: 1 });
+    expect(database.articles.getArticle(readingUser.id, sharedArticleId)).toMatchObject({
+      isRead: false,
+    });
+  });
+
+  it("does not reapply existing subscriber rules while backfilling a resumed subscription", async () => {
+    const database = new AppDatabase(":memory:");
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
+    const readingUser = (await auth.register("active-reader", "reader-password"))?.user;
+    const resumingUser = (await auth.register("resuming-reader", "reader-password"))?.user;
+    if (!readingUser || !resumingUser) throw new Error("Test accounts were not created");
+    cleanups.push(() => database.close());
+
+    const feedUrl = "https://publisher.example.test/resumed.xml";
+    const readingFeed = database.feeds.createFeed(readingUser.id, { feedUrl });
+    const pausedFeed = database.feeds.createFeed(resumingUser.id, { feedUrl, paused: true });
+    publishSharedArticle(database, readingFeed.id);
+    const sharedArticleId = manuallyUnreadSharedArticle(database, readingUser.id, readingFeed.id);
+
+    database.feeds.updateFeed(resumingUser.id, pausedFeed.id, { paused: false });
+    database.feeds.completeRefresh(readingFeed.id, {
+      httpStatus: 304,
+      etag: null,
+      lastModified: null,
+    });
+
+    expect(database.feeds.getFeed(resumingUser.id, pausedFeed.id)).toMatchObject({ totalCount: 1 });
+    expect(database.articles.getArticle(readingUser.id, sharedArticleId)).toMatchObject({
+      isRead: false,
+    });
   });
 
   it("delivers a shared refresh to eligible accounts when another account is full", async () => {

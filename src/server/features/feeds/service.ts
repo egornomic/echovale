@@ -79,7 +79,11 @@ export class FeedService {
       this.assertCanCreateFeed(userId);
       const feed = this.repository.createFeed(userId, input);
       if (!feed.paused) {
-        this.ingestion.initializeSubscription(feed.id, this.repository.sourceIdForFeed(feed.id));
+        this.ingestion.initializeSubscription(
+          userId,
+          feed.id,
+          this.repository.sourceIdForFeed(feed.id),
+        );
       }
       return this.repository.getFeed(userId, feed.id) as Feed;
     })();
@@ -168,7 +172,7 @@ export class FeedService {
     return this.sqlite.transaction(() => {
       const updated = this.repository.updateFeed(userId, id, input);
       if (updated && input.folderId !== undefined && input.folderId !== existing.folderId) {
-        this.rules.recomputeRulesForArticles(this.articles.listFeedArticleIds(id));
+        this.rules.recomputeRulesForFeedArticles(userId, id, this.articles.listFeedArticleIds(id));
       }
       return updated;
     })();

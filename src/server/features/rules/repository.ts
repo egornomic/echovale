@@ -165,45 +165,110 @@ export class RuleRepository {
   }
 
   recomputeRulesForArticles(articleIds: Iterable<number>): void {
-    let recomputed = false;
-    for (const articleId of articleIds) {
-      recomputed = true;
-      this.sqlite.prepare("DELETE FROM article_rule_matches WHERE article_id = ?").run(articleId);
-      const deliveries = this.sqlite
-        .prepare(
-          `SELECT rules.id, feeds.id AS feedId
-           FROM rules
-           JOIN feeds ON feeds.user_id = rules.user_id
-           JOIN feed_articles ON feed_articles.feed_id = feeds.id
-           WHERE feed_articles.article_id = ?`,
-        )
-        .all(articleId) as Array<{ id: number; feedId: number }>;
-      for (const delivery of deliveries) {
-        this.applyRuleToArticle(delivery.id, delivery.feedId, articleId);
-      }
-    }
-    if (!recomputed) return;
-    this.sqlite
-      .prepare(
-        `UPDATE rules
-       SET matched_count = (
-         SELECT COUNT(*) FROM article_rule_matches WHERE rule_id = rules.id
-       )`,
-      )
-      .run();
+    this.recomputeRules(articleIds);
+  }
+
+  recomputeRulesForAccountArticles(userId: number, articleIds: Iterable<number>): void {
+    this.recomputeRules(articleIds, { userId });
+  }
+
+  recomputeRulesForFeedArticles(
+    userId: number,
+    feedId: number,
+    articleIds: Iterable<number>,
+  ): void {
+    this.recomputeRules(articleIds, { userId, feedId });
   }
 
   recomputeRulesForAllArticles(userId: number): void {
     const articles = this.sqlite
       .prepare(
-        `SELECT articles.id
+        `SELECT DISTINCT articles.id
          FROM feed_articles
          JOIN articles ON articles.id = feed_articles.article_id
          JOIN feeds ON feeds.id = feed_articles.feed_id
          WHERE feeds.user_id = ?`,
       )
       .all(userId) as Array<{ id: number }>;
-    this.recomputeRulesForArticles(articles.map((article) => article.id));
+    this.recomputeRulesForAccountArticles(
+      userId,
+      articles.map((article) => article.id),
+    );
+  }
+
+  private recomputeRules(
+    articleIds: Iterable<number>,
+    scope?: { userId: number; feedId?: number },
+  ): void {
+    const deleteMatches =
+      scope?.feedId !== undefined
+        ? this.sqlite.prepare(
+            "DELETE FROM article_rule_matches WHERE article_id = ? AND feed_id = ?",
+          )
+        : scope
+          ? this.sqlite.prepare(
+              `DELETE FROM article_rule_matches
+             WHERE article_id = ? AND rule_id IN (SELECT id FROM rules WHERE user_id = ?)`,
+            )
+          : this.sqlite.prepare("DELETE FROM article_rule_matches WHERE article_id = ?");
+    const deliveries =
+      scope?.feedId !== undefined
+        ? this.sqlite.prepare(
+            `SELECT rules.id, feeds.id AS feedId
+           FROM rules
+           JOIN feeds ON feeds.user_id = rules.user_id
+           JOIN feed_articles ON feed_articles.feed_id = feeds.id
+           WHERE feed_articles.article_id = ? AND feeds.user_id = ? AND feeds.id = ?`,
+          )
+        : scope
+          ? this.sqlite.prepare(
+              `SELECT rules.id, feeds.id AS feedId
+             FROM rules
+             JOIN feeds ON feeds.user_id = rules.user_id
+             JOIN feed_articles ON feed_articles.feed_id = feeds.id
+             WHERE feed_articles.article_id = ? AND rules.user_id = ?`,
+            )
+          : this.sqlite.prepare(
+              `SELECT rules.id, feeds.id AS feedId
+             FROM rules
+             JOIN feeds ON feeds.user_id = rules.user_id
+             JOIN feed_articles ON feed_articles.feed_id = feeds.id
+             WHERE feed_articles.article_id = ?`,
+            );
+    let recomputed = false;
+    for (const articleId of articleIds) {
+      recomputed = true;
+      if (scope?.feedId !== undefined) deleteMatches.run(articleId, scope.feedId);
+      else if (scope) deleteMatches.run(articleId, scope.userId);
+      else deleteMatches.run(articleId);
+      const matchingDeliveries = (
+        scope?.feedId !== undefined
+          ? deliveries.all(articleId, scope.userId, scope.feedId)
+          : scope
+            ? deliveries.all(articleId, scope.userId)
+            : deliveries.all(articleId)
+      ) as Array<{ id: number; feedId: number }>;
+      for (const delivery of matchingDeliveries) {
+        this.applyRuleToArticle(delivery.id, delivery.feedId, articleId);
+      }
+    }
+    if (!recomputed) return;
+    const updateMatchedCounts = scope
+      ? this.sqlite.prepare(
+          `UPDATE rules
+           SET matched_count = (
+             SELECT COUNT(*) FROM article_rule_matches WHERE rule_id = rules.id
+           )
+           WHERE user_id = ?`,
+        )
+      : this.sqlite.prepare(
+          `UPDATE rules
+           SET matched_count = (
+             SELECT COUNT(*) FROM article_rule_matches WHERE rule_id = rules.id
+           )`,
+        );
+    if (scope) updateMatchedCounts.run(scope.userId);
+    else updateMatchedCounts.run();
   }
 
   private applyRuleToArticle(ruleId: number, feedId: number, articleId: number): void {
