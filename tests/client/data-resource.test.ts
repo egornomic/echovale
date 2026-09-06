@@ -638,6 +638,8 @@ describe("reader data resource", () => {
       url: "/api/auth/register",
       payload: { username: "resource-reader", password: "reader-password" },
     });
+    for (const initialFeed of database.feeds.listFeeds(1))
+      database.feeds.deleteFeed(1, initialFeed.id);
     const setCookie = registration.headers["set-cookie"];
     const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(";", 1)[0];
     if (!cookie) throw new Error("Registration did not return a session cookie");

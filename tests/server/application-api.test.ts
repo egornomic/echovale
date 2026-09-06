@@ -44,6 +44,28 @@ function applicationServices(database: AppDatabase): ApplicationApiServices {
 }
 
 describe("local application API", () => {
+  it("starts with the releases feed and preserves its removal after reopening", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "feedfold-default-feed-"));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const path = join(directory, "feedfold.db");
+    const database = new AppDatabase(path);
+    const application = new ApplicationApi(applicationServices(database));
+    const bootstrap = (await application.invoke({ operation: "bootstrap" })) as BootstrapData;
+    expect(bootstrap.feeds).toMatchObject([
+      {
+        title: "feedfold releases",
+        feedUrl: "https://github.com/egornomic/feedfold/releases.atom",
+        paused: false,
+      },
+    ]);
+    await application.invoke({ operation: "deleteFeed", payload: { id: bootstrap.feeds[0]?.id } });
+    const reopened = new AppDatabase(path);
+    const restarted = new ApplicationApi(applicationServices(reopened));
+    expect(((await restarted.invoke({ operation: "bootstrap" })) as BootstrapData).feeds).toEqual(
+      [],
+    );
+  });
+
   it("runs the reading workflow for one local user without an account session", async () => {
     const directory = await mkdtemp(join(tmpdir(), "feedfold-application-api-test-"));
     const database = new AppDatabase(join(directory, "feedfold.db"));
@@ -115,7 +137,7 @@ describe("local application API", () => {
 
     const bootstrap = (await application.invoke({ operation: "bootstrap" })) as BootstrapData;
     expect(bootstrap.folders).toContainEqual(folder);
-    expect(bootstrap.feeds).toHaveLength(1);
+    expect(bootstrap.feeds).toHaveLength(2);
     expect(bootstrap.counts.all).toBe(1);
 
     const opml = await application.invoke({ operation: "exportOpml" });

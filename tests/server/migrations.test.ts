@@ -688,6 +688,7 @@ Return only the summary in plain text.`,
         username: "reader",
       });
       expect(database.feeds.listFeeds(1)).toMatchObject([
+        { title: "feedfold releases" },
         {
           title: "Migration feed",
           sourceKind: "published",
@@ -726,7 +727,7 @@ Return only the summary in plain text.`,
 
       const partner = await authService.register("partner", "partner-password");
       expect(partner?.user).toMatchObject({ id: 2, username: "partner" });
-      expect(database.feeds.listFeeds(2)).toEqual([]);
+      expect(database.feeds.listFeeds(2)).toMatchObject([{ title: "feedfold releases" }]);
       expect(database.settings.getSettings(2)).toEqual({
         pollIntervalMinutes: 20,
         duplicateArticleWindowDays: 7,

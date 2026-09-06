@@ -84,7 +84,7 @@ describe("shared feed sources", () => {
       () => refresh.stop(),
     );
 
-    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(1);
+    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(2);
     expect(refresh.request([firstFeed.id, secondFeed.id])).toEqual({
       requested: 1,
       refreshingFeedIds: [firstFeed.id, secondFeed.id],
@@ -454,7 +454,7 @@ describe("shared feed sources", () => {
       config,
       parsed,
     });
-    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(1);
+    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(2);
     expect(database.connection.prepare("SELECT COUNT(*) FROM articles").pluck().get()).toBe(1);
     expect(database.connection.prepare("SELECT COUNT(*) FROM feed_articles").pluck().get()).toBe(2);
 
@@ -465,6 +465,6 @@ describe("shared feed sources", () => {
       config: { ...config, selectors: { ...config.selectors, item: "li.release" } },
       parsed,
     });
-    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(2);
+    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(3);
   });
 });

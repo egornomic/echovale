@@ -64,7 +64,38 @@ describe("hosted account authentication", () => {
         },
       });
       expect(response.body).not.toMatch(/"id":\d/);
+      const bootstrap = await app.inject({
+        method: "GET",
+        url: "/api/bootstrap",
+        headers: { cookie: cookieFrom(response.headers["set-cookie"]) },
+      });
+      expect(bootstrap.json().feeds).toMatchObject([
+        {
+          title: "feedfold releases",
+          feedUrl: "https://github.com/egornomic/feedfold/releases.atom",
+          paused: false,
+        },
+      ]);
     }
+  });
+
+  it("keeps the default feed removed when an account signs in again", async () => {
+    const { app } = await authApp();
+    const payload = { username: "reader", password: "reader-password" };
+    const registered = await app.inject({ method: "POST", url: "/api/auth/register", payload });
+    const headers = { cookie: cookieFrom(registered.headers["set-cookie"]) };
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap", headers });
+    const [feed] = bootstrap.json().feeds;
+    expect(
+      (await app.inject({ method: "DELETE", url: `/api/feeds/${feed.id}`, headers })).statusCode,
+    ).toBe(204);
+    const login = await app.inject({ method: "POST", url: "/api/auth/login", payload });
+    const afterLogin = await app.inject({
+      method: "GET",
+      url: "/api/bootstrap",
+      headers: { cookie: cookieFrom(login.headers["set-cookie"]) },
+    });
+    expect(afterLogin.json().feeds).toEqual([]);
   });
 
   it("does not exceed the account cap across database connections", async () => {
@@ -392,7 +423,10 @@ describe("hosted account authentication", () => {
       )
       .run(timestamp, timestamp);
     const sourceId = Number(
-      database.connection.prepare("SELECT id FROM feed_sources").pluck().get(),
+      database.connection
+        .prepare("SELECT id FROM feed_sources WHERE feed_url = 'https://example.com/feed.xml'")
+        .pluck()
+        .get(),
     );
     database.connection
       .prepare(
@@ -407,7 +441,9 @@ describe("hosted account authentication", () => {
          VALUES (?, ?, ?, 'Example', ?, ?)`,
       )
       .run(userId, sourceId, folderId, timestamp, timestamp);
-    const feedId = Number(database.connection.prepare("SELECT id FROM feeds").pluck().get());
+    const feedId = Number(
+      database.connection.prepare("SELECT id FROM feeds WHERE title = 'Example'").pluck().get(),
+    );
     database.connection
       .prepare(
         `INSERT INTO articles (source_id, external_id, title, discovered_at)
@@ -555,7 +591,7 @@ describe("hosted account authentication", () => {
     ]) {
       expect(database.connection.prepare(`SELECT COUNT(*) FROM ${table}`).pluck().get()).toBe(0);
     }
-    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(1);
+    expect(database.connection.prepare("SELECT COUNT(*) FROM feed_sources").pluck().get()).toBe(2);
     expect(database.connection.prepare("SELECT COUNT(*) FROM articles").pluck().get()).toBe(1);
     expect(
       (

@@ -29,6 +29,17 @@ export class FeedService {
     return this.repository.listFeeds(userId);
   }
 
+  createDefaultFeed(userId: number): Feed {
+    const feedUrl = "https://github.com/egornomic/feedfold/releases.atom";
+    const existing = this.listFeeds(userId).find((feed) => feed.feedUrl === feedUrl);
+    if (existing) return existing;
+    return this.createFeed(userId, {
+      feedUrl,
+      siteUrl: "https://github.com/egornomic/feedfold/releases",
+      title: "feedfold releases",
+    });
+  }
+
   getFeed(userId: number, id: number): Feed | null {
     return this.repository.getFeed(userId, id);
   }

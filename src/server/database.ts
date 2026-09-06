@@ -67,7 +67,6 @@ export class AppDatabase {
 
     this.ai = new AiRepository(this.connection);
     this.articles = new ArticleRepository(this.connection);
-    this.auth = new AuthRepository(this.connection, this.quotas);
     this.rules = new RuleRepository(this.connection);
     const settingsRepository = new SettingsRepository(this.connection);
     this.settings = new SettingsService(this.connection, settingsRepository, this.ai);
@@ -89,6 +88,7 @@ export class AppDatabase {
       deploymentPolicy,
       this.quotas,
     );
+    this.auth = new AuthRepository(this.connection, this.quotas, this.feeds);
     this.extractions = new ExtractionService(
       this.connection,
       extractionRepository,

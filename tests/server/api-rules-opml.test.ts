@@ -213,11 +213,11 @@ describe("live API, OPML, and filtering rules", () => {
     });
     expect(readerBootstrap.json()).toMatchObject({
       counts: { all: 1 },
-      feeds: [{ id: readerFeed.id, title: "Reader copy" }],
+      feeds: [{ title: "feedfold releases" }, { id: readerFeed.id, title: "Reader copy" }],
     });
     expect(partnerBootstrap.json()).toMatchObject({
       counts: { all: 1 },
-      feeds: [{ id: partnerFeed.id, title: "Partner copy" }],
+      feeds: [{ title: "feedfold releases" }, { id: partnerFeed.id, title: "Partner copy" }],
       folders: [],
     });
 
@@ -532,7 +532,7 @@ describe("live API, OPML, and filtering rules", () => {
           headers: { cookie: readerCookie },
         })
       ).json(),
-    ).toMatchObject({ counts: { all: 0 }, feeds: [] });
+    ).toMatchObject({ counts: { all: 0 }, feeds: [{ title: "feedfold releases" }] });
     expect(
       (
         await app.inject({
@@ -541,7 +541,9 @@ describe("live API, OPML, and filtering rules", () => {
           headers: { cookie: partnerCookie },
         })
       ).json(),
-    ).toMatchObject({ feeds: [{ id: partnerFeed.id, title: "Partner copy" }] });
+    ).toMatchObject({
+      feeds: [{ title: "feedfold releases" }, { id: partnerFeed.id, title: "Partner copy" }],
+    });
 
     expect(
       (
@@ -658,7 +660,10 @@ describe("live API, OPML, and filtering rules", () => {
     const child = bootstrap.folders.find((folder) => folder.name === "Child");
     expect(child?.parentId).toBe(parent?.id);
     expect(bootstrap.folders.some((folder) => folder.name === "Someday")).toBe(true);
-    expect(bootstrap.feeds[0]).toMatchObject({ title: "My saved label", folderId: child?.id });
+    expect(bootstrap.feeds.find((feed) => feed.title === "My saved label")).toMatchObject({
+      title: "My saved label",
+      folderId: child?.id,
+    });
     expect(bootstrap.counts).toMatchObject({ unread: 2, all: 2 });
 
     const rule = await asReader<Rule>("/api/rules", {

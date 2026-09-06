@@ -161,6 +161,9 @@ describe("live article delivery", () => {
       telegramMediaService: new TelegramMediaService(1_000),
       xMediaService: new XMediaService(1_000),
     });
+    for (const initialFeed of database.feeds.listFeeds(TEST_USER_ID)) {
+      database.feeds.deleteFeed(TEST_USER_ID, initialFeed.id);
+    }
     const feed = database.feeds.createFeed(TEST_USER_ID, {
       title: "Live reading",
       feedUrl: "https://example.test/live-reading.xml",

@@ -5,6 +5,7 @@ import {
   DEFAULT_CUSTOM_PROMPTS,
 } from "../../../shared/ai-prompts.js";
 import type { QuotaService } from "../../quota.js";
+import type { FeedService } from "../feeds/service.js";
 
 const LEGACY_OWNER = "__legacy_owner__";
 
@@ -90,6 +91,7 @@ export class AuthRepository {
   constructor(
     private readonly sqlite: Sqlite.Database,
     private readonly quotas: QuotaService,
+    private readonly feeds: FeedService,
   ) {}
 
   authHashSecret(): Buffer {
@@ -191,6 +193,7 @@ export class AuthRepository {
       id = Number(result.lastInsertRowid);
       this.createDefaultSettings(id, pollIntervalMinutes);
     }
+    this.feeds.createDefaultFeed(id);
     return {
       id,
       publicId,

@@ -210,6 +210,9 @@ describe("deployment policy", () => {
     const cookie = String(registration.headers["set-cookie"]).split(";", 1)[0];
     const registeredUser = database.auth.findEnabledUser("private-reader");
     if (!registeredUser) throw new Error("Registration did not create an account");
+    for (const initialFeed of database.feeds.listFeeds(registeredUser.id)) {
+      database.feeds.deleteFeed(registeredUser.id, initialFeed.id);
+    }
     const feed = database.feeds.createFeed(registeredUser.id, {
       feedUrl: "https://publisher.example.test/paused-private.xml",
       paused: true,
