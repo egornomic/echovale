@@ -27,6 +27,64 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("repairs stored X link thumbnails and article images while preserving saved and read state", () => {
+    const database = new AppDatabase(":memory:");
+    try {
+      const feed = database.feeds.createFeed(1, { feedUrl: "https://x.com/VitalikButerin/rss" });
+      const imageUrl =
+        "https://nitter.xitter.cc/pic/card_img%2F2095563548252368896%2F8Ls6L-DN%3Fformat%3Dpng%26name%3D386x202";
+      database.feeds.completeRefresh(feed.id, {
+        httpStatus: 200,
+        etag: null,
+        lastModified: null,
+        parsed: {
+          title: "vitalik.eth / @VitalikButerin",
+          siteUrl: "https://x.com/VitalikButerin",
+          articles: [
+            {
+              externalId: "2096370186094076098",
+              title: "",
+              author: "@VitalikButerin",
+              url: "https://x.com/VitalikButerin/status/2096370186094076098#m",
+              publishedAt: null,
+              summary: "Progress on Frames (EIP-8141).",
+              imageUrl,
+              feedContentHtml: `<p>Progress on Frames (EIP-8141).</p><a href="https://eips.ethereum.org/EIPS/eip-8141"><img src="${imageUrl}"></a>`,
+            },
+          ],
+        },
+      });
+      const article = database.articles.listArticles(1, { state: "all" })[0];
+      if (!article) throw new Error("Expected the existing X post");
+      database.articles.updateArticleState(1, article.id, { isRead: true, isStarred: true });
+      database.connection
+        .prepare("UPDATE articles SET content_html = feed_content_html WHERE id = ?")
+        .run(article.id);
+      database.connection.prepare("DELETE FROM migrations WHERE version = 43").run();
+
+      migrateDatabase(database.connection, 180);
+
+      const directImageUrl =
+        "https://pbs.twimg.com/card_img/2095563548252368896/8Ls6L-DN?format=png&name=386x202";
+      const migrated = database.articles.getArticle(1, article.id);
+      expect(migrated).toMatchObject({
+        id: article.id,
+        imageUrl: directImageUrl,
+        isRead: true,
+        isStarred: true,
+        url: article.url,
+        summary: article.summary,
+      });
+      for (const html of [migrated?.feedContentHtml, migrated?.contentHtml]) {
+        const body = articleBody(html ?? "");
+        expect(body.querySelector("img")?.src).toBe(directImageUrl);
+        expect(body.querySelector("a")?.href).toBe("https://eips.ethereum.org/EIPS/eip-8141");
+      }
+    } finally {
+      database.close();
+    }
+  });
+
   it("moves existing X subscriptions and stored media off Nitter without changing article state", () => {
     const database = new AppDatabase(":memory:");
     try {

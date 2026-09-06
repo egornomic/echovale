@@ -1419,6 +1419,38 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    sql: "",
+    after(database) {
+      const articles = database
+        .prepare(`
+        SELECT articles.id, articles.image_url AS imageUrl,
+          articles.feed_content_html AS feedHtml, articles.content_html AS contentHtml,
+          feed_sources.feed_url AS feedUrl
+        FROM articles JOIN feed_sources ON feed_sources.id = articles.source_id
+        WHERE articles.image_url LIKE '%/pic/card_img%'
+      `)
+        .all() as Array<{
+        id: number;
+        imageUrl: string;
+        feedHtml: string | null;
+        contentHtml: string | null;
+        feedUrl: string;
+      }>;
+      const update = database.prepare(`
+        UPDATE articles SET image_url = ?, feed_content_html = ?, content_html = ? WHERE id = ?
+      `);
+      for (const article of articles) {
+        if (!xFeedUrl(article.feedUrl)) continue;
+        update.run(
+          xContentUrl(article.imageUrl, article.imageUrl),
+          xContentHtml(article.feedHtml, article.imageUrl),
+          xContentHtml(article.contentHtml, article.imageUrl),
+          article.id,
+        );
+      }
+    },
+  },
 ];
 
 export function migrateDatabase(

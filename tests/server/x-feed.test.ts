@@ -1,5 +1,6 @@
 import { createServer, type RequestListener } from "node:http";
 import type { AddressInfo } from "node:net";
+import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppDatabase } from "../../src/server/database.js";
 import { discoverFeed } from "../../src/server/feed-discovery.js";
@@ -46,6 +47,38 @@ function rss(origin: string, ids = [POST_ID]): string {
 }
 
 describe("X RSS instances", () => {
+  it("loads shared-link thumbnails directly from X with their image format and size", async () => {
+    let origin = "";
+    origin = await serve((_request, response) =>
+      response.end(`<?xml version="1.0"?><rss version="2.0"><channel>
+        <title>vitalik.eth / @VitalikButerin</title><link>${origin}/VitalikButerin</link>
+        <item><guid isPermaLink="false">2096370186094076098</guid>
+          <link>${origin}/VitalikButerin/status/2096370186094076098#m</link>
+          <description><![CDATA[<p>Progress on Frames (EIP-8141).</p>
+            <a href="https://eips.ethereum.org/EIPS/eip-8141">
+              <img src="${origin}/pic/card_img%2F2095563548252368896%2F8Ls6L-DN%3Fformat%3Dpng%26name%3D386x202">
+              <b>EIP-8141: Frame Transaction</b>
+            </a>]]></description>
+        </item></channel></rss>`),
+    );
+
+    const parsed = await fetchXFeed("https://x.com/VitalikButerin/rss", 500, fetch, undefined, [
+      origin,
+    ]);
+    const imageUrl =
+      "https://pbs.twimg.com/card_img/2095563548252368896/8Ls6L-DN?format=png&name=386x202";
+    expect(parsed.articles[0]?.imageUrl).toBe(imageUrl);
+    const dom = new JSDOM(parsed.articles[0]?.feedContentHtml ?? "");
+    try {
+      expect(dom.window.document.querySelector("img")?.src).toBe(imageUrl);
+      expect(dom.window.document.querySelector("a")?.href).toBe(
+        "https://eips.ethereum.org/EIPS/eip-8141",
+      );
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("uses the configured order and accepts new instance hosts without frontend configuration", () => {
     const bases = nitterBaseUrls(
       " https://first.example/ ,https://second.example,https://first.example ",

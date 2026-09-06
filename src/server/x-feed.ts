@@ -49,7 +49,7 @@ export function xContentUrl(value: string | null, instanceUrl: string): string |
   if (url.pathname.startsWith("/pic/")) {
     const path = decodeURIComponent(url.pathname.slice("/pic/".length));
     if (
-      /^(?:media|profile_images|amplify_video_thumb|ext_tw_video_thumb|tweet_video_thumb)\//.test(
+      /^(?:media|card_img|profile_images|amplify_video_thumb|ext_tw_video_thumb|tweet_video_thumb)\//.test(
         path,
       )
     ) {
