@@ -25,6 +25,47 @@ import {
   updateBootstrapCounts,
 } from "./reader-state";
 
+type ArticleAiRequestKind = "summary" | "translation";
+
+function useArticleAiRequestLifecycle() {
+  const activeRequests = useRef<Record<ArticleAiRequestKind, Map<number, number>>>({
+    summary: new Map(),
+    translation: new Map(),
+  });
+  const nextRequestId = useRef(0);
+
+  const start = useCallback((kind: ArticleAiRequestKind, articleId: number): number | null => {
+    const requests = activeRequests.current[kind];
+    if (requests.has(articleId)) return null;
+    const requestId = nextRequestId.current + 1;
+    nextRequestId.current = requestId;
+    requests.set(articleId, requestId);
+    return requestId;
+  }, []);
+
+  const isCurrent = useCallback(
+    (kind: ArticleAiRequestKind, articleId: number, requestId: number): boolean =>
+      activeRequests.current[kind].get(articleId) === requestId,
+    [],
+  );
+
+  const finish = useCallback(
+    (kind: ArticleAiRequestKind, articleId: number, requestId: number): void => {
+      const requests = activeRequests.current[kind];
+      if (requests.get(articleId) === requestId) requests.delete(articleId);
+    },
+    [],
+  );
+
+  const invalidate = useCallback((kind: ArticleAiRequestKind, articleId?: number): void => {
+    const requests = activeRequests.current[kind];
+    if (articleId === undefined) requests.clear();
+    else requests.delete(articleId);
+  }, []);
+
+  return { start, isCurrent, finish, invalidate };
+}
+
 interface ArticleActionsOptions {
   bootstrap: BootstrapData | null;
   queue: ArticleQueueController;
@@ -52,19 +93,29 @@ export function useArticleActions({
   const [markReadPending, setMarkReadPending] = useState(false);
   const fullContentVisibleIdsRef = useRef(new Set<number>());
   const fullContentLoadingIds = useRef(new Set<number>());
-  const summaryLoadingIds = useRef(new Set<number>());
-  const translationLoadingIds = useRef(new Set<number>());
+  const { start, isCurrent, finish, invalidate } = useArticleAiRequestLifecycle();
+  const translationLanguageRef = useRef(bootstrap?.settings.translationLanguage);
   const manuallyUnreadArticleIds = useRef(new Set<number>());
   const previousQueryRevision = useRef(queue.queryRevision);
+  translationLanguageRef.current = bootstrap?.settings.translationLanguage;
 
   useEffect(() => {
     if (previousQueryRevision.current === queue.queryRevision) return;
     previousQueryRevision.current = queue.queryRevision;
     fullContentVisibleIdsRef.current = new Set();
     fullContentLoadingIds.current.clear();
+    invalidate("translation");
     setFullContentVisibleIds(new Set());
     setArticleTranslationStates(new Map());
-  }, [queue.queryRevision]);
+  }, [invalidate, queue.queryRevision]);
+
+  useEffect(
+    () => () => {
+      invalidate("summary");
+      invalidate("translation");
+    },
+    [invalidate],
+  );
 
   const loadBootstrap = dataResource.loadBootstrap;
   const loadArticles = queue.loadArticles;
@@ -303,7 +354,8 @@ export function useArticleActions({
         fullContentVisibleIdsRef.current.has(article.id),
       );
       if (action === "wait") return;
-      patchArticleTranslationState(article.id, { visible: false });
+      invalidate("translation", article.id);
+      patchArticleTranslationState(article.id, { visible: false, loading: false });
       if (action === "hide") {
         fullContentVisibleIdsRef.current.delete(article.id);
         setFullContentVisibleIds((current) => {
@@ -329,7 +381,7 @@ export function useArticleActions({
         void loadFullArticle(article);
       }
     },
-    [loadFullArticle, patchArticleTranslationState, queue, showToast],
+    [invalidate, loadFullArticle, patchArticleTranslationState, queue, showToast],
   );
 
   const patchArticleSummaryState = useCallback(
@@ -348,7 +400,6 @@ export function useArticleActions({
 
   const generateArticleSummary = useCallback(
     async (article: Article, promptId: string | null, regenerate: boolean) => {
-      if (summaryLoadingIds.current.has(article.id)) return;
       const isYouTubeVideo = article.media?.provider === "youtube";
       const feature = bootstrap?.aiSettings.features.articleSummary;
       const provider = feature
@@ -368,7 +419,8 @@ export function useArticleActions({
         return;
       }
 
-      summaryLoadingIds.current.add(article.id);
+      const requestId = start("summary", article.id);
+      if (requestId === null) return;
       patchArticleSummaryState(article.id, {
         visible: true,
         loading: true,
@@ -378,17 +430,19 @@ export function useArticleActions({
       });
       try {
         const summary = await api.summarizeArticle(article.id, promptId, regenerate);
+        if (!isCurrent("summary", article.id, requestId)) return;
         queue.setArticles((current) =>
           current.map((item) => (item.id === article.id ? { ...item, aiSummary: summary } : item)),
         );
         patchArticleSummaryState(article.id, { loading: false });
       } catch (caught) {
+        if (!isCurrent("summary", article.id, requestId)) return;
         patchArticleSummaryState(article.id, { loading: false, error: errorMessage(caught) });
       } finally {
-        summaryLoadingIds.current.delete(article.id);
+        finish("summary", article.id, requestId);
       }
     },
-    [bootstrap?.aiSettings, patchArticleSummaryState, queue],
+    [bootstrap?.aiSettings, finish, isCurrent, patchArticleSummaryState, queue, start],
   );
 
   const toggleArticleSummary = useCallback(
@@ -442,12 +496,12 @@ export function useArticleActions({
 
   const generateArticleTranslation = useCallback(
     async (article: Article) => {
-      if (translationLoadingIds.current.has(article.id)) return;
       const sourceKind = articleTranslationSourceKind(
         article,
         fullContentVisibleIdsRef.current.has(article.id),
       );
-      translationLoadingIds.current.add(article.id);
+      const requestId = start("translation", article.id);
+      if (requestId === null) return;
       patchArticleTranslationState(article.id, {
         visible: false,
         loading: true,
@@ -456,6 +510,7 @@ export function useArticleActions({
       });
       try {
         const translation = await api.translateArticle(article.id, sourceKind);
+        if (!isCurrent("translation", article.id, requestId)) return;
         const currentArticle = queue.articlesRef.current.find((item) => item.id === article.id);
         const currentSourceKind = currentArticle
           ? articleTranslationSourceKind(
@@ -466,11 +521,12 @@ export function useArticleActions({
         patchArticleTranslationState(article.id, {
           visible:
             currentSourceKind === translation.sourceKind &&
-            translation.language === bootstrap?.settings.translationLanguage,
+            translation.language === translationLanguageRef.current,
           loading: false,
           translation,
         });
       } catch (caught) {
+        if (!isCurrent("translation", article.id, requestId)) return;
         const configurationMissing =
           caught instanceof ApiError &&
           ["AI_NOT_CONFIGURED", "AI_KEY_MISSING", "AI_CREDENTIAL_STORAGE_UNAVAILABLE"].includes(
@@ -483,10 +539,10 @@ export function useArticleActions({
           configurationMissing,
         });
       } finally {
-        translationLoadingIds.current.delete(article.id);
+        finish("translation", article.id, requestId);
       }
     },
-    [bootstrap?.settings.translationLanguage, patchArticleTranslationState, queue.articlesRef],
+    [finish, isCurrent, patchArticleTranslationState, queue.articlesRef, start],
   );
 
   const toggleArticleTranslation = useCallback(
@@ -611,8 +667,12 @@ export function useArticleActions({
     (settings: AppSettings) => {
       if (!bootstrap) return;
       const invalidation = articleSettingsInvalidation(bootstrap.settings, settings);
-      if (invalidation.resetTranslationState) setArticleTranslationStates(new Map());
+      if (invalidation.resetTranslationState) {
+        invalidate("translation");
+        setArticleTranslationStates(new Map());
+      }
       if (invalidation.invalidatedSummaryPromptIds.size > 0) {
+        invalidate("summary");
         setArticleSummaryStates(new Map());
         queue.setArticles((current) =>
           invalidateArticleSummaries(current, invalidation.invalidatedSummaryPromptIds),
@@ -620,7 +680,7 @@ export function useArticleActions({
       }
       dataResource.mutateBootstrap((current) => ({ ...current, settings }));
     },
-    [bootstrap, dataResource, queue],
+    [bootstrap, dataResource, invalidate, queue],
   );
 
   const applyAiSettings = useCallback(
