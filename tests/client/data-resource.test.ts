@@ -385,7 +385,7 @@ describe("reader data resource", () => {
     expect(unsubscribed).toBe(true);
   });
 
-  it("discards a live counter snapshot that overlaps an optimistic read", async () => {
+  it("keeps an optimistic read and its counters while a background snapshot overlaps the save", async () => {
     const database = new AppDatabase(":memory:");
     cleanups.push(() => database.close());
     const feed = database.feeds.createFeed(1, {
@@ -447,6 +447,8 @@ describe("reader data resource", () => {
     cleanups.push(() => resource.pause());
     let latestBootstrap: BootstrapData | null = null;
     const appliedUnreadCounts: number[] = [];
+    const appliedReadStates: boolean[] = [];
+    const articlesReconciled = deferred();
     resource.connect({
       getBootstrap: () => latestBootstrap,
       applyBootstrap: (bootstrap) => {
@@ -456,7 +458,12 @@ describe("reader data resource", () => {
       setBootstrapError: (message) => {
         if (message) throw new Error(message);
       },
-      reloadArticles: async () => {},
+      reloadArticles: async (signal) => {
+        const article = database.articles.getArticle(1, existingArticle.id);
+        if (!article || signal.aborted) return;
+        appliedReadStates.push(article.isRead);
+        if (article.isRead) articlesReconciled.resolve();
+      },
       reloadRules: async () => {},
     });
     const currentBootstrap = () => {
@@ -513,11 +520,14 @@ describe("reader data resource", () => {
     releaseStaleSnapshot.resolve();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(currentBootstrap().counts.unread).toBe(0);
+    expect(appliedReadStates).toEqual([]);
 
     releaseMutation.resolve();
     await mutation;
+    await articlesReconciled.promise;
 
     expect(appliedUnreadCounts).not.toContain(2);
+    expect(appliedReadStates).toEqual([true]);
     expect(currentBootstrap().counts.unread).toBe(1);
     expect(currentBootstrap().feeds[0]?.unreadCount).toBe(1);
   });

@@ -94,6 +94,14 @@ function openArticleButton(container: HTMLElement, title: string): HTMLButtonEle
   return button;
 }
 
+function articleSavedButton(container: HTMLElement, title: string): HTMLButtonElement {
+  const button = openArticleButton(container, title)
+    .closest("li")
+    ?.querySelector<HTMLButtonElement>(".list-star-button");
+  if (!button) throw new Error(`The article list did not render the Saved action for ${title}`);
+  return button;
+}
+
 function expandedArticleTitles(container: HTMLElement): string[] {
   return [...container.querySelectorAll<HTMLElement>(".expanded-article .article-header h2")].map(
     (heading) => heading.textContent?.trim() ?? "",
@@ -109,7 +117,7 @@ function activeExpandedArticleTitle(container: HTMLElement): string | null {
 }
 
 describe("live article delivery", () => {
-  it("keeps newly fetched articles at the end of active reading queues", async () => {
+  it("reconciles saved state and keeps newly fetched articles at the end of active reading queues", async () => {
     const database = new AppDatabase(":memory:");
     const extraction = new ExtractionQueue(database.extractions, 1, 1_000);
     const webFeeds = new WebFeedService();
@@ -173,9 +181,20 @@ describe("live article delivery", () => {
     });
 
     let deliveredArticleListRequests = 0;
+    let holdNextArticleResponse = false;
+    let articleResponseHeld = false;
+    let releaseArticleResponse = () => {};
+    const delayedArticleResponse = new Promise<void>((resolve) => {
+      releaseArticleResponse = resolve;
+    });
     const invoke = async (request: DesktopRequest): Promise<DesktopResponse> => {
       try {
         const value = await application.invoke(request);
+        if (request.operation === "articles" && holdNextArticleResponse) {
+          holdNextArticleResponse = false;
+          articleResponseHeld = true;
+          await delayedArticleResponse;
+        }
         if (
           request.operation === "articles" &&
           database.articles
@@ -294,6 +313,15 @@ describe("live article delivery", () => {
       expect(delivered).toBeDefined();
       expect(dom.window.location.pathname).toBe(`/articles/${delivered?.id}`);
 
+      await application.invoke({
+        operation: "updateArticleState",
+        payload: { id: delivered?.id, state: { isStarred: true } },
+      });
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("online")));
+      await waitFor("the open read article to reflect a save from another client", () =>
+        Boolean(container.querySelector('[aria-label="Remove from Saved (S)"]')),
+      );
+
       const backButton = container.querySelector<HTMLButtonElement>(
         '[aria-label="Back to articles"]',
       );
@@ -312,6 +340,37 @@ describe("live article delivery", () => {
         "all articles to load",
         () => container.querySelectorAll(".article-open-button").length === 3,
       );
+
+      await application.invoke({
+        operation: "updateArticleState",
+        payload: { id: delivered?.id, state: { isStarred: false } },
+      });
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("online")));
+      await waitFor(
+        "the magazine list to reflect removal from Saved",
+        () =>
+          articleSavedButton(container, "Delivered while reading").getAttribute("aria-pressed") ===
+          "false",
+      );
+
+      const requestsBeforeLocalSave = deliveredArticleListRequests;
+      holdNextArticleResponse = true;
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("online")));
+      await waitFor("the old article response to be held", () => articleResponseHeld);
+      await act(async () => articleSavedButton(container, "Delivered while reading").click());
+      await waitFor(
+        "the local save to persist",
+        () => database.articles.getArticle(TEST_USER_ID, delivered?.id ?? 0)?.isStarred === true,
+      );
+      releaseArticleResponse();
+      await waitFor(
+        "reconciliation after the overlapping local save",
+        () => deliveredArticleListRequests >= requestsBeforeLocalSave + 2,
+      );
+      expect(
+        articleSavedButton(container, "Delivered while reading").getAttribute("aria-pressed"),
+      ).toBe("true");
+
       const expandedViewButton = container.querySelector<HTMLButtonElement>(
         '[aria-label="Expanded view"]',
       );
@@ -327,6 +386,18 @@ describe("live article delivery", () => {
         "Starting article",
         "Last loaded article",
       ]);
+
+      await application.invoke({
+        operation: "updateArticleState",
+        payload: { id: delivered?.id, state: { isStarred: false } },
+      });
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("online")));
+      await waitFor(
+        "the expanded queue to reflect removal from Saved",
+        () =>
+          Boolean(container.querySelector('.expanded-article [aria-label="Save article (S)"]')) &&
+          !container.querySelector('.expanded-article [aria-label="Remove from Saved (S)"]'),
+      );
 
       await act(async () => {
         dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "j" }));

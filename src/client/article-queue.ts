@@ -16,7 +16,7 @@ import type { ReaderDataResource } from "./data-resource";
 import {
   appendUnseenArticles,
   articleQueryForReaderRoute,
-  articlesWithLocalState,
+  articlesWithUpdatedState,
   firstUnseenArticlePage,
   fullContentIdsAfterReload,
 } from "./reader-state";
@@ -283,13 +283,16 @@ export function useArticleQueue({
       const requestKey = `${appRoutePath(queryRoute)}:${readingMode}`;
       const currentQueueReloadId = queueReloadId.current;
 
-      const page = await api.articles(
-        articleQueryForReaderRoute(queryRoute, {
-          limit: readingMode === "expanded" ? 20 : 100,
-          includeContent: readingMode === "expanded",
-        }),
-        signal,
-      );
+      const [page, refreshedActiveArticle] = await Promise.all([
+        api.articles(
+          articleQueryForReaderRoute(queryRoute, {
+            limit: readingMode === "expanded" ? 20 : 100,
+            includeContent: readingMode === "expanded",
+          }),
+          signal,
+        ),
+        nextRoute.kind === "article" ? api.article(nextRoute.articleId, signal) : null,
+      ]);
       const currentAppRoute = currentRoute();
       const currentQueryRoute =
         currentAppRoute.kind === "reader"
@@ -318,11 +321,13 @@ export function useArticleQueue({
         cursor: string | null,
         readerQueue: boolean,
       ) => {
-        const { articles: nextArticles, appended } = appendUnseenArticles(
-          articlesRef.current,
-          candidates,
-        );
-        setArticles((current) => appendUnseenArticles(current, candidates).articles);
+        const updatedStates = refreshedActiveArticle
+          ? [...candidates, refreshedActiveArticle]
+          : candidates;
+        const reconcile = (current: Article[]) =>
+          appendUnseenArticles(articlesWithUpdatedState(current, updatedStates), candidates);
+        const { articles: nextArticles, appended } = reconcile(articlesRef.current);
+        setArticles((current) => reconcile(current).articles);
         setNextCursor(cursor);
         setError(null);
         if (readingMode === "expanded") {
@@ -383,7 +388,7 @@ export function useArticleQueue({
 
       articleListNeedsReload.current = false;
       loadedReaderRequestKey.current = requestKey;
-      const nextArticles = articlesWithLocalState(articlesRef.current, reloaded);
+      const nextArticles = reloaded;
       setArticles(nextArticles);
       setNextCursor(cursor);
       setError(null);

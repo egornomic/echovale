@@ -187,7 +187,7 @@ export class ReaderDataResource implements ReaderDataMutations {
       if (mode === "delivery") {
         await this.articleRequest.waitUntilIdle();
         const binding = this.binding;
-        if (!this.active || !binding) return false;
+        if (!this.active || !binding || this.counterMutationCount > 0) return false;
         const completed = await this.deliveryArticleRequest.run(async (signal) => {
           await binding.reloadArticles(signal, mode);
           return true;
@@ -226,6 +226,7 @@ export class ReaderDataResource implements ReaderDataMutations {
   runCounterMutation = async <T>(request: () => Promise<T>): Promise<T> => {
     this.counterMutationCount += 1;
     this.bootstrapMutationRevision += 1;
+    this.interruptArticleDelivery();
     let succeeded = false;
     try {
       const result = await request();

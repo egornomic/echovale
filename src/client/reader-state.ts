@@ -40,11 +40,11 @@ export function appendUnseenArticles(articles: Article[], candidates: Article[])
   };
 }
 
-export function articlesWithLocalState(articles: Article[], candidates: Article[]): Article[] {
-  const currentById = new Map(articles.map((article) => [article.id, article]));
-  return candidates.map((article) => {
-    const current = currentById.get(article.id);
-    return current ? { ...article, isRead: current.isRead, isStarred: current.isStarred } : article;
+export function articlesWithUpdatedState(articles: Article[], candidates: Article[]): Article[] {
+  const updatedById = new Map(candidates.map((article) => [article.id, article]));
+  return articles.map((article) => {
+    const updated = updatedById.get(article.id);
+    return updated ? { ...article, isRead: updated.isRead, isStarred: updated.isStarred } : article;
   });
 }
 

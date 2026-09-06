@@ -3,7 +3,7 @@ import {
   appendUnseenArticles,
   articleQueryForReaderRoute,
   articleSettingsInvalidation,
-  articlesWithLocalState,
+  articlesWithUpdatedState,
   filterRuleName,
   firstUnseenArticlePage,
   fullContentIdsAfterReload,
@@ -190,29 +190,37 @@ describe("reader state", () => {
     expect(result.articles[1]).toMatchObject({ id: 2, isRead: true, isStarred: true });
   });
 
-  it("keeps local read and saved state while applying delivered article data", () => {
+  it("updates stored read and saved state without replacing the active queue's content or order", () => {
     const current = [
-      { ...article, id: 1, isRead: true },
+      {
+        ...article,
+        id: 1,
+        title: "Full article",
+        contentHtml: "<p>Extracted text</p>",
+        isRead: true,
+      },
       { ...article, id: 2, isStarred: true },
     ];
     const refreshed = [
-      { ...article, id: 1, title: "Refreshed one" },
       { ...article, id: 2, title: "Refreshed two" },
+      { ...article, id: 1, title: "Refreshed one", isStarred: true },
       { ...article, id: 3, title: "Delivered three" },
     ];
 
     expect(
-      articlesWithLocalState(current, refreshed).map(({ id, title, isRead, isStarred }) => ({
+      articlesWithUpdatedState(current, refreshed).map(({ id, title, isRead, isStarred }) => ({
         id,
         title,
         isRead,
         isStarred,
       })),
     ).toEqual([
-      { id: 1, title: "Refreshed one", isRead: true, isStarred: false },
-      { id: 2, title: "Refreshed two", isRead: false, isStarred: true },
-      { id: 3, title: "Delivered three", isRead: false, isStarred: false },
+      { id: 1, title: "Full article", isRead: false, isStarred: true },
+      { id: 2, title: article.title, isRead: false, isStarred: false },
     ]);
+    expect(articlesWithUpdatedState(current, refreshed)[0].contentHtml).toBe(
+      "<p>Extracted text</p>",
+    );
   });
 
   it("continues through refreshed cursor pages until another unread article is reachable", async () => {
