@@ -78,7 +78,9 @@ export class FeedService {
     return this.sqlite.transaction(() => {
       this.assertCanCreateFeed(userId);
       const feed = this.repository.createFeed(userId, input);
-      this.ingestion.initializeSubscription(feed.id, this.repository.sourceIdForFeed(feed.id));
+      if (!feed.paused) {
+        this.ingestion.initializeSubscription(feed.id, this.repository.sourceIdForFeed(feed.id));
+      }
       return this.repository.getFeed(userId, feed.id) as Feed;
     })();
   }
@@ -216,6 +218,10 @@ export class FeedService {
 
   listSourceSubscriptions(sourceId: number): SourceSubscription[] {
     return this.repository.listSourceSubscriptions(sourceId);
+  }
+
+  listDeliverableSourceSubscriptions(sourceId: number): SourceSubscription[] {
+    return this.repository.listDeliverableSourceSubscriptions(sourceId);
   }
 
   completeRefresh(id: number, input: SuccessfulFeedRefresh): boolean {

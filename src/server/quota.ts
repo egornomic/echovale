@@ -266,21 +266,6 @@ export class QuotaService {
     }
   }
 
-  assertSourceAccountsStorage(sourceId: number): void {
-    if (
-      this.policy.quotas.articlesPerAccount === null &&
-      this.policy.quotas.storedBytesPerAccount === null
-    ) {
-      this.assertGlobalStorage();
-      return;
-    }
-    const userIds = this.sqlite
-      .prepare("SELECT DISTINCT user_id AS userId FROM feeds WHERE source_id = ?")
-      .all(sourceId) as Array<{ userId: number }>;
-    for (const { userId } of userIds) this.assertAccountStorage(userId);
-    this.assertGlobalStorage();
-  }
-
   assertArticleAccountsStorage(articleId: number, additionalBytes = 0): void {
     if (
       this.policy.quotas.articlesPerAccount === null &&

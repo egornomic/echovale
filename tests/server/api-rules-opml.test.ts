@@ -152,7 +152,6 @@ describe("live API, OPML, and filtering rules", () => {
         title: "Reader copy",
         feedUrl,
         folderId: folder.id,
-        paused: true,
       },
     });
     const partnerFeedResponse = await app.inject({
@@ -164,7 +163,6 @@ describe("live API, OPML, and filtering rules", () => {
         title: "Partner copy",
         feedUrl,
         folderId: null,
-        paused: true,
       },
     });
     expect(readerFeedResponse.statusCode).toBe(200);

@@ -1,6 +1,6 @@
 import type Sqlite from "better-sqlite3";
 import { cleanArticleHtml } from "../../article-html.js";
-import type { QuotaService } from "../../quota.js";
+import { QuotaExceededError, type QuotaService } from "../../quota.js";
 import type { ArticleRepository } from "../articles/repository.js";
 import type { RuleRepository } from "../rules/repository.js";
 import type { ParsedFeed } from "../shared.js";
@@ -61,7 +61,7 @@ export class FeedIngestionService {
         }
       : undefined;
 
-    return this.sqlite.transaction(() => {
+    const stored = this.sqlite.transaction(() => {
       if (
         input.expectedSelectionRevision !== undefined &&
         !this.feeds.selectionRevisionMatches(sourceId, input.expectedSelectionRevision)
@@ -78,27 +78,37 @@ export class FeedIngestionService {
         insertedArticleCount = stored.insertedArticleCount;
         for (const articleId of stored.changedArticleIds) changedArticleIds.add(articleId);
       }
-      this.quotas.assertSourceAccountsStorage(sourceId);
-      const initializedAt = new Date().toISOString();
-      for (const subscription of this.feeds.listSourceSubscriptions(sourceId)) {
-        const delivered = this.articles.deliverSourceArticles(
-          subscription.feedId,
-          sourceId,
-          parsed,
-          subscription.initialized ? undefined : INITIAL_ARTICLE_LIMIT,
-        );
-        this.quotas.assertAccountStorage(subscription.userId);
-        for (const articleId of delivered) changedArticleIds.add(articleId);
-        this.feeds.markSubscriptionInitialized(subscription.feedId, initializedAt);
-      }
+      this.quotas.assertGlobalStorage();
       this.feeds.completeSuccessfulRefresh(sourceId, {
         ...input,
         scheduled: input.scheduled === true && !initialRefresh,
         insertedArticleCount,
       });
-      this.rules.recomputeRulesForArticles(changedArticleIds);
-      this.quotas.assertSourceAccountsStorage(sourceId);
-      return true;
+      return changedArticleIds;
     })();
+    if (!stored) return false;
+
+    const changedArticleIds = new Set(stored);
+    const initializedAt = new Date().toISOString();
+    for (const subscription of this.feeds.listDeliverableSourceSubscriptions(sourceId)) {
+      try {
+        const delivered = this.sqlite.transaction(() => {
+          const delivered = this.articles.deliverSourceArticles(
+            subscription.feedId,
+            sourceId,
+            parsed,
+            subscription.initialized ? undefined : INITIAL_ARTICLE_LIMIT,
+          );
+          this.quotas.assertAccountStorage(subscription.userId);
+          this.feeds.markSubscriptionInitialized(subscription.feedId, initializedAt);
+          return delivered;
+        })();
+        for (const articleId of delivered) changedArticleIds.add(articleId);
+      } catch (error) {
+        if (!(error instanceof QuotaExceededError)) throw error;
+      }
+    }
+    this.rules.recomputeRulesForArticles(changedArticleIds);
+    return true;
   }
 }

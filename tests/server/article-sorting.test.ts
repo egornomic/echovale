@@ -89,7 +89,6 @@ describe("folder article sorting", () => {
           title,
           feedUrl: `https://example.test/${title.toLowerCase()}`,
           folderId,
-          paused: true,
         },
       });
       expect(response.statusCode).toBe(200);

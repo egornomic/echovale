@@ -399,7 +399,7 @@ describe("deployment policy", () => {
     }
   });
 
-  it("rolls back article ingestion when an account storage quota would be exceeded", () => {
+  it("keeps a shared source healthy when an account storage quota blocks its delivery", () => {
     const database = new AppDatabase(
       ":memory:",
       20,
@@ -408,9 +408,8 @@ describe("deployment policy", () => {
     try {
       const feed = database.feeds.createFeed(1, {
         feedUrl: "https://publisher.example.test/quota.xml",
-        paused: true,
       });
-      expect(() =>
+      expect(
         database.feeds.completeRefresh(feed.id, {
           httpStatus: 200,
           etag: null,
@@ -430,11 +429,12 @@ describe("deployment policy", () => {
             })),
           },
         }),
-      ).toThrow("This account has reached its 1 article limit.");
-      expect(database.connection.prepare("SELECT COUNT(*) FROM articles").pluck().get()).toBe(0);
+      ).toBe(true);
+      expect(database.connection.prepare("SELECT COUNT(*) FROM articles").pluck().get()).toBe(2);
       expect(database.connection.prepare("SELECT COUNT(*) FROM feed_articles").pluck().get()).toBe(
         0,
       );
+      expect(database.feeds.getFeed(1, feed.id)).toMatchObject({ healthStatus: "healthy" });
     } finally {
       database.close();
     }
@@ -449,9 +449,8 @@ describe("deployment policy", () => {
     try {
       const feed = storageDatabase.feeds.createFeed(1, {
         feedUrl: "https://publisher.example.test/bytes.xml",
-        paused: true,
       });
-      expect(() =>
+      expect(
         storageDatabase.feeds.completeRefresh(feed.id, {
           httpStatus: 200,
           etag: null,
@@ -473,9 +472,12 @@ describe("deployment policy", () => {
             ],
           },
         }),
-      ).toThrow("This account has reached its stored-data limit.");
+      ).toBe(true);
       expect(
         storageDatabase.connection.prepare("SELECT COUNT(*) FROM articles").pluck().get(),
+      ).toBe(1);
+      expect(
+        storageDatabase.connection.prepare("SELECT COUNT(*) FROM feed_articles").pluck().get(),
       ).toBe(0);
     } finally {
       storageDatabase.close();

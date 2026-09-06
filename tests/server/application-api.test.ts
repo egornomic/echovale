@@ -68,7 +68,6 @@ describe("local application API", () => {
       title: "Desktop feed",
       feedUrl: "https://example.test/feed.xml",
       folderId: folder.id,
-      paused: true,
     });
     database.feeds.completeRefresh(feed.id, {
       httpStatus: 200,
@@ -183,10 +182,9 @@ describe("local application API", () => {
       sourceKind: "published",
       title: "Contract feed",
       feedUrl: "https://example.test/contracts.xml",
-      paused: true,
       folderId: folder.id,
     });
-    expect(feed).toMatchObject({ paused: true, folderId: folder.id });
+    expect(feed).toMatchObject({ paused: false, folderId: folder.id });
     database.feeds.completeRefresh(feed.id, {
       httpStatus: 200,
       etag: null,

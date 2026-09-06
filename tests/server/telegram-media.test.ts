@@ -40,7 +40,6 @@ describe("Telegram article media", () => {
     const feed = database.feeds.createFeed(reader.user.id, {
       feedUrl: "https://t.me/Example_Channel",
       title: "Example Channel",
-      paused: true,
     });
     database.feeds.completeRefresh(feed.id, {
       httpStatus: 200,

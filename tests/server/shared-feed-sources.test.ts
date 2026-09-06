@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { AppDatabase } from "../../src/server/database.js";
+import { deploymentPolicy } from "../../src/server/deployment-policy.js";
 import { AuthService } from "../../src/server/features/auth/service.js";
 import { FeedRefreshService } from "../../src/server/refresh.js";
 
@@ -18,8 +19,8 @@ describe("shared feed sources", () => {
     if (!firstUser || !secondUser) throw new Error("Test accounts were not created");
 
     const feedUrl = "https://publisher.example.test/feed.xml";
-    const firstFeed = database.feeds.createFeed(firstUser.id, { feedUrl, paused: true });
-    const secondFeed = database.feeds.createFeed(secondUser.id, { feedUrl, paused: true });
+    const firstFeed = database.feeds.createFeed(firstUser.id, { feedUrl });
+    const secondFeed = database.feeds.createFeed(secondUser.id, { feedUrl });
     let requests = 0;
     const refresh = new FeedRefreshService(database.feeds, 2, 1_000, undefined, async () => {
       requests += 1;
@@ -96,12 +97,139 @@ describe("shared feed sources", () => {
     );
   });
 
+  it("delivers a shared refresh to eligible accounts when another account is full", async () => {
+    const database = new AppDatabase(
+      ":memory:",
+      20,
+      deploymentPolicy("public", { articlesPerAccount: 1 }),
+    );
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
+    cleanups.push(() => database.close());
+
+    const fullUser = (await auth.register("full-reader", "reader-password"))?.user;
+    const availableUser = (await auth.register("available-reader", "reader-password"))?.user;
+    if (!fullUser || !availableUser) throw new Error("Test accounts were not created");
+
+    const fullFeed = database.feeds.createFeed(fullUser.id, {
+      feedUrl: "https://publisher.example.test/full.xml",
+    });
+    database.feeds.completeRefresh(fullFeed.id, {
+      httpStatus: 200,
+      etag: null,
+      lastModified: null,
+      parsed: {
+        title: "Full account",
+        siteUrl: null,
+        articles: [
+          {
+            externalId: "existing",
+            title: "Existing article",
+            url: "https://publisher.example.test/existing",
+            author: null,
+            publishedAt: null,
+            summary: "",
+            imageUrl: null,
+            feedContentHtml: null,
+          },
+        ],
+      },
+    });
+
+    const sharedUrl = "https://publisher.example.test/shared.xml";
+    const blockedFeed = database.feeds.createFeed(fullUser.id, { feedUrl: sharedUrl });
+    const deliveredFeed = database.feeds.createFeed(availableUser.id, { feedUrl: sharedUrl });
+    expect(
+      database.feeds.completeRefresh(deliveredFeed.id, {
+        httpStatus: 200,
+        etag: null,
+        lastModified: null,
+        parsed: {
+          title: "Shared feed",
+          siteUrl: null,
+          articles: [
+            {
+              externalId: "shared",
+              title: "Shared article",
+              url: "https://publisher.example.test/shared",
+              author: null,
+              publishedAt: null,
+              summary: "",
+              imageUrl: null,
+              feedContentHtml: null,
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+
+    expect(database.articles.listArticles(fullUser.id, { state: "all" })).toMatchObject([
+      { title: "Existing article" },
+    ]);
+    expect(database.feeds.getFeed(fullUser.id, blockedFeed.id)).toMatchObject({ totalCount: 0 });
+    expect(database.feeds.subscriptionNeedsRefresh(blockedFeed.id)).toBe(true);
+    expect(database.articles.listArticles(availableUser.id, { state: "all" })).toMatchObject([
+      { title: "Shared article" },
+    ]);
+    expect(database.feeds.getFeed(availableUser.id, deliveredFeed.id)).toMatchObject({
+      healthStatus: "healthy",
+      lastHttpStatus: 200,
+    });
+  });
+
+  it("does not deliver to paused subscriptions until they resume", async () => {
+    const database = new AppDatabase(":memory:");
+    const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
+    const pausedUser = (await auth.register("paused-reader", "reader-password"))?.user;
+    const activeUser = (await auth.register("active-reader", "reader-password"))?.user;
+    if (!pausedUser || !activeUser) throw new Error("Test accounts were not created");
+    cleanups.push(() => database.close());
+
+    const feedUrl = "https://publisher.example.test/paused.xml";
+    const pausedFeed = database.feeds.createFeed(pausedUser.id, { feedUrl, paused: true });
+    const activeFeed = database.feeds.createFeed(activeUser.id, { feedUrl });
+    database.feeds.completeRefresh(activeFeed.id, {
+      httpStatus: 200,
+      etag: null,
+      lastModified: null,
+      parsed: {
+        title: "Shared feed",
+        siteUrl: null,
+        articles: [
+          {
+            externalId: "shared",
+            title: "Shared article",
+            url: "https://publisher.example.test/shared",
+            author: null,
+            publishedAt: null,
+            summary: "",
+            imageUrl: null,
+            feedContentHtml: null,
+          },
+        ],
+      },
+    });
+
+    expect(database.articles.listArticles(pausedUser.id, { state: "all" })).toHaveLength(0);
+    expect(database.articles.listArticles(activeUser.id, { state: "all" })).toHaveLength(1);
+
+    database.feeds.updateFeed(pausedUser.id, pausedFeed.id, { paused: false });
+    database.feeds.completeRefresh(activeFeed.id, {
+      httpStatus: 304,
+      etag: null,
+      lastModified: null,
+    });
+    expect(database.articles.listArticles(pausedUser.id, { state: "all" })).toMatchObject([
+      { title: "Shared article" },
+    ]);
+  });
+
   it("initializes a later subscription from the shared cache without backfilling old entries", async () => {
     const database = new AppDatabase(":memory:");
     const auth = new AuthService(database.auth, 20, { maxAccounts: 100 });
     const firstUser = (await auth.register("cache-owner", "reader-password"))?.user;
     const secondUser = (await auth.register("cache-reader", "reader-password"))?.user;
-    if (!firstUser || !secondUser) throw new Error("Test accounts were not created");
+    const pausedUser = (await auth.register("paused-cache-reader", "reader-password"))?.user;
+    if (!firstUser || !secondUser || !pausedUser) throw new Error("Test accounts were not created");
     cleanups.push(() => database.close());
 
     const feedUrl = "https://publisher.example.test/archive.xml";
@@ -130,6 +258,10 @@ describe("shared feed sources", () => {
     const secondFeed = database.feeds.createFeed(secondUser.id, { feedUrl });
     expect(secondFeed.totalCount).toBe(10);
     expect(database.feeds.subscriptionNeedsRefresh(secondFeed.id)).toBe(false);
+
+    const pausedFeed = database.feeds.createFeed(pausedUser.id, { feedUrl, paused: true });
+    expect(pausedFeed.totalCount).toBe(0);
+    expect(database.feeds.subscriptionNeedsRefresh(pausedFeed.id)).toBe(true);
 
     database.feeds.completeRefresh(firstFeed.id, {
       httpStatus: 304,

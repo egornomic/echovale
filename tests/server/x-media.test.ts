@@ -135,7 +135,6 @@ describe("X article media", () => {
     const feed = database.feeds.createFeed(reader.user.id, {
       feedUrl: "https://x.com/marclou/rss",
       title: "Marc Lou / @marclou",
-      paused: true,
     });
     database.feeds.completeRefresh(feed.id, {
       httpStatus: 200,

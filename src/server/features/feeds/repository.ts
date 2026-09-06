@@ -346,10 +346,21 @@ export class FeedRepository {
   }
 
   listSourceSubscriptions(sourceId: number): SourceSubscription[] {
+    return this.selectSourceSubscriptions(sourceId);
+  }
+
+  listDeliverableSourceSubscriptions(sourceId: number): SourceSubscription[] {
+    return this.selectSourceSubscriptions(sourceId, "AND paused = 0");
+  }
+
+  private selectSourceSubscriptions(
+    sourceId: number,
+    eligibilityClause = "",
+  ): SourceSubscription[] {
     return this.sqlite
       .prepare(
         `SELECT id AS feedId, user_id AS userId, initialized_at IS NOT NULL AS initialized
-         FROM feeds WHERE source_id = ? ORDER BY id`,
+         FROM feeds WHERE source_id = ? ${eligibilityClause} ORDER BY id`,
       )
       .all(sourceId) as SourceSubscription[];
   }

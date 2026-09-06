@@ -76,7 +76,6 @@ describe("feed refresh delivery events", () => {
       title: "First reader's feed",
       feedUrl: "https://example.test/first.xml",
       folderId: null,
-      paused: true,
     });
     const refresh = new FeedRefreshService(database.feeds, 1, 1_000, undefined, async () =>
       feedResponse(),
@@ -147,7 +146,6 @@ describe("feed refresh delivery events", () => {
       title: "Streamed feed",
       feedUrl: "https://example.test/stream.xml",
       folderId: null,
-      paused: true,
     });
 
     const response = await fetch(`${origin}/api/refresh/events`, {
