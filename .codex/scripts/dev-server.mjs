@@ -1,11 +1,14 @@
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
   closeSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -30,7 +33,6 @@ if (commonGitResult.status !== 0) {
 const commonGitPath = realpathSync(commonGitResult.stdout.trim());
 const sharedEnvPath = join(dirname(commonGitPath), ".env");
 const mainDatabasePath = join(commonGitPath, "codex", "feedfold.db");
-if (existsSync(sharedEnvPath)) process.loadEnvFile(sharedEnvPath);
 const runtimePath = join(worktreePath, ".codex", "runtime");
 const worktreeDatabasePath = join(runtimePath, "feedfold.db");
 const statePath = join(runtimePath, "dev-server.json");
@@ -44,18 +46,25 @@ function readState() {
   const state = JSON.parse(readFileSync(statePath, "utf8"));
   if (
     !Number.isInteger(state.pid) ||
-    state.worktreePath !== worktreePath ||
+    state.pid <= 0 ||
+    typeof state.worktreePath !== "string" ||
     !Array.isArray(state.command) ||
     typeof state.readyUrl !== "string" ||
     typeof state.healthUrl !== "string"
   ) {
-    throw new Error(`Invalid or foreign dev-server state at ${statePath}`);
+    throw new Error(`Invalid dev-server state at ${statePath}`);
   }
   return state;
 }
 
 function removeState() {
   if (existsSync(statePath)) unlinkSync(statePath);
+}
+
+function writeState(state) {
+  const temporaryPath = `${statePath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`);
+  renameSync(temporaryPath, statePath);
 }
 
 function isAlive(pid) {
@@ -69,14 +78,79 @@ function isAlive(pid) {
   }
 }
 
-function assertOwnedProcess(state) {
-  if (process.platform === "win32" || !isAlive(state.pid)) return;
-  const result = spawnSync("ps", ["-ww", "-p", String(state.pid), "-o", "command="], {
+function processIdentity(pid) {
+  if (process.platform !== "darwin" && process.platform !== "linux") {
+    throw new Error("Dev-server ownership verification requires macOS or Linux.");
+  }
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], {
     encoding: "utf8",
   });
-  if (result.status === 0 && !result.stdout.includes(basename(state.command[0]))) {
-    throw new Error(`Refusing to stop unrelated process ${state.pid}`);
+  if (result.status !== 0 || !result.stdout.trim()) {
+    throw new Error(
+      `Cannot verify dev-server process ${pid}: ${result.stderr || result.error || "process inspection failed"}`,
+    );
   }
+  let cwd;
+  if (process.platform === "linux") {
+    cwd = readlinkSync(`/proc/${pid}/cwd`);
+  } else {
+    const directory = spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+      encoding: "utf8",
+    });
+    cwd = directory.stdout
+      ?.split("\n")
+      .find((line) => line.startsWith("n"))
+      ?.slice(1);
+    if (directory.status !== 0 || !cwd) {
+      throw new Error(`Cannot verify working directory for dev-server process ${pid}`);
+    }
+  }
+  return { startedAt: result.stdout.trim(), cwd: realpathSync(cwd) };
+}
+
+function assertOwnedProcess(state) {
+  const identity = processIdentity(state.pid);
+  if (identity.cwd !== worktreePath || identity.startedAt !== state.processStartedAt) {
+    throw new Error(`Refusing to stop or reuse unverified process ${state.pid}`);
+  }
+}
+
+async function checkEndpoints(state) {
+  const [api, frontend] = await Promise.all(
+    [state.healthUrl, state.readyUrl].map(async (url) => {
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(1_500) });
+        await response.body?.cancel();
+        return response.ok;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return { api, frontend };
+}
+
+async function status() {
+  const state = readState();
+  if (!state) return { status: "stopped", worktreePath, databasePath: worktreeDatabasePath };
+  if (state.worktreePath !== worktreePath) return { ...state, status: "foreign" };
+  if (!isAlive(state.pid)) return { ...state, status: "stopped" };
+  try {
+    assertOwnedProcess(state);
+  } catch (error) {
+    return { ...state, status: "unverified", reason: error.message };
+  }
+  const endpoints = await checkEndpoints(state);
+  return {
+    ...state,
+    status:
+      state.status === "starting"
+        ? "starting"
+        : endpoints.api && endpoints.frontend
+          ? "ready"
+          : "unhealthy",
+    endpoints,
+  };
 }
 
 function signalProcessGroup(pid, signal, force = false) {
@@ -109,6 +183,11 @@ async function stop() {
     console.log("Dev server is not running.");
     return;
   }
+  if (state.worktreePath !== worktreePath) {
+    removeState();
+    console.log("Removed foreign dev-server state without stopping its process.");
+    return;
+  }
   if (!isAlive(state.pid)) {
     removeState();
     console.log("Removed stale dev-server state.");
@@ -118,6 +197,7 @@ async function stop() {
   assertOwnedProcess(state);
   signalProcessGroup(state.pid, "SIGTERM");
   if (!(await waitUntilStopped(state.pid, 5_000))) {
+    assertOwnedProcess(state);
     signalProcessGroup(state.pid, "SIGKILL", true);
   }
   if (!(await waitUntilStopped(state.pid, 2_000))) {
@@ -132,39 +212,17 @@ function logTail() {
   return readFileSync(logPath, "utf8").slice(-4_000);
 }
 
-async function waitForResponse(url, label) {
+async function waitUntilReady(state) {
   const deadline = Date.now() + startupTimeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(1_500),
-      });
-      if (response.ok) return;
-    } catch {
-      // Retry until the bounded startup deadline.
+    if (!isAlive(state.pid)) {
+      throw new Error(`Dev server exited during startup.\n${logTail()}`);
     }
+    const endpoints = await checkEndpoints(state);
+    if (endpoints.api && endpoints.frontend) return;
     await delay(250);
   }
-  throw new Error(`${label} did not become ready.\n${logTail()}`);
-}
-
-async function waitUntilReady(state) {
-  const exited = new Promise((_, reject) => {
-    const interval = setInterval(() => {
-      if (!isAlive(state.pid)) {
-        clearInterval(interval);
-        reject(new Error(`Dev server exited during startup.\n${logTail()}`));
-      }
-    }, 100);
-    interval.unref();
-  });
-  await Promise.race([
-    Promise.all([
-      waitForResponse(state.healthUrl, "API health endpoint"),
-      waitForResponse(state.readyUrl, "Frontend"),
-    ]),
-    exited,
-  ]);
+  throw new Error(`Dev server did not become ready.\n${logTail()}`);
 }
 
 function availablePort() {
@@ -219,15 +277,23 @@ async function copyMainDatabase() {
 
 async function start() {
   const existingState = readState();
-  if (existingState && isAlive(existingState.pid)) {
+  if (existingState?.worktreePath === worktreePath && isAlive(existingState.pid)) {
     assertOwnedProcess(existingState);
-    if (shouldOpen) openBrowser(existingState.readyUrl);
-    if (shouldCopy) copyUrl(existingState.readyUrl);
-    console.log(`Dev server is already running at ${existingState.readyUrl}`);
-    return;
+    if (existingState.status === "starting") await waitUntilReady(existingState);
+    const endpoints = await checkEndpoints(existingState);
+    if (endpoints.api && endpoints.frontend) {
+      if (existingState.status === "starting") writeState({ ...existingState, status: "ready" });
+      if (shouldOpen) openBrowser(existingState.readyUrl);
+      if (shouldCopy) copyUrl(existingState.readyUrl);
+      console.log(`Dev server is already running at ${existingState.readyUrl}`);
+      return;
+    }
+    console.log("Dev server is not responding; restarting the verified workspace process.");
+    await stop();
   }
   if (existingState) removeState();
 
+  if (existsSync(sharedEnvPath)) process.loadEnvFile(sharedEnvPath);
   const [apiPort, webPort] = await Promise.all([availablePort(), availablePort()]);
   const apiOrigin = `http://127.0.0.1:${apiPort}`;
   const readyUrl = `http://localhost:${webPort}/`;
@@ -250,6 +316,7 @@ async function start() {
     windowsHide: true,
   });
   closeSync(logDescriptor);
+  await once(child, "spawn");
   if (!child.pid) throw new Error("Dev server did not return a process ID");
 
   const state = {
@@ -258,15 +325,26 @@ async function start() {
     command: devCommand,
     readyUrl,
     healthUrl,
+    databasePath: worktreeDatabasePath,
+    status: "starting",
     startedAt: new Date().toISOString(),
   };
-  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
   child.unref();
 
   try {
+    state.processStartedAt = processIdentity(child.pid).startedAt;
+    writeState(state);
     await waitUntilReady(state);
+    state.status = "ready";
+    writeState(state);
   } catch (error) {
-    await stop();
+    if (state.processStartedAt) {
+      await stop();
+    } else {
+      // This child was just spawned here; no saved PID is trusted for this cleanup.
+      signalProcessGroup(child.pid, "SIGTERM");
+      await waitUntilStopped(child.pid, 5_000);
+    }
     throw error;
   }
   if (shouldOpen) openBrowser(readyUrl);
@@ -275,6 +353,9 @@ async function start() {
 }
 
 switch (operation) {
+  case "status":
+    console.log(JSON.stringify(await status(), null, 2));
+    break;
   case "start":
     await start();
     break;
