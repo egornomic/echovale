@@ -285,10 +285,51 @@ describe("reader state", () => {
       [13, 1],
     ]);
     expect(updated.folders.map(({ id, unreadCount }) => [id, unreadCount])).toEqual([
-      [1, 1],
+      [1, 0],
       [2, 0],
       [3, 1],
     ]);
+  });
+
+  it("keeps ancestor unread counts consistent with stored read and unread changes", () => {
+    const database = new AppDatabase(":memory:");
+    try {
+      const root = database.folders.createFolder(1, { name: "Engineering" });
+      const parent = database.folders.createFolder(1, { name: "Frontend", parentId: root.id });
+      const child = database.folders.createFolder(1, { name: "React", parentId: parent.id });
+      database.folders.createFolder(1, { name: "Backend", parentId: root.id });
+      const feed = database.feeds.createFeed(1, {
+        title: "React updates",
+        feedUrl: "https://example.test/react.xml",
+        folderId: child.id,
+      });
+      database.feeds.completeRefresh(feed.id, {
+        httpStatus: 200,
+        etag: null,
+        lastModified: null,
+        parsed: {
+          title: feed.title,
+          siteUrl: null,
+          articles: [{ ...article, externalId: "nested-story" }],
+        },
+      });
+
+      for (const isRead of [true, false]) {
+        const stored = database.articles.listArticlePage(1, { state: "all" }).articles[0];
+        const before = {
+          ...database.bootstrap.getBootstrap(1),
+          aiSettings: bootstrap().aiSettings,
+        };
+        const optimistic = updateBootstrapCounts(before, stored, isRead ? -1 : 1, 0);
+        database.articles.updateArticleState(1, stored.id, { isRead });
+        const persisted = database.bootstrap.getBootstrap(1);
+        expect(optimistic.folders).toEqual(persisted.folders);
+        expect(optimistic.feeds).toEqual(persisted.feeds);
+        expect(optimistic.counts).toEqual(persisted.counts);
+      }
+    } finally {
+      database.close();
+    }
   });
 
   it("invalidates only AI output affected by changed reader settings", () => {

@@ -7,6 +7,7 @@ import type {
   Folder,
   ReadingMode,
 } from "../shared/types.js";
+import { folderPath } from "./folder-hierarchy.js";
 import type { ReaderRoute } from "./routes.js";
 
 const FILTER_RULE_NAME_TEXT_LIMIT = 72;
@@ -225,6 +226,9 @@ export function updateBootstrapCounts(
   unreadDelta: number,
   starredDelta: number,
 ): BootstrapData {
+  const affectedFolderIds = new Set(
+    folderPath(article.folderId, bootstrap.folders).map((folder) => folder.id),
+  );
   return {
     ...bootstrap,
     counts: {
@@ -238,7 +242,7 @@ export function updateBootstrapCounts(
         : feed,
     ),
     folders: bootstrap.folders.map((folder) =>
-      folder.id === article.folderId
+      affectedFolderIds.has(folder.id)
         ? { ...folder, unreadCount: Math.max(0, folder.unreadCount + unreadDelta) }
         : folder,
     ),

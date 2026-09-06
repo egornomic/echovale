@@ -6,17 +6,22 @@ export interface FolderHierarchyEntry {
   path: string;
 }
 
-export function folderPathLabel(folderId: number | null, folders: Folder[]): string {
-  if (folderId === null) return "Top level";
-
+export function folderPath(folderId: number | null, folders: Folder[]): Folder[] {
   const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
-  const names: string[] = [];
-  let current = foldersById.get(folderId);
+  const path: Folder[] = [];
+  let current = folderId === null ? undefined : foldersById.get(folderId);
   while (current) {
-    names.unshift(current.name);
+    path.unshift(current);
     current = current.parentId === null ? undefined : foldersById.get(current.parentId);
   }
-  return names.join(" / ");
+  return path;
+}
+
+export function folderPathLabel(folderId: number | null, folders: Folder[]): string {
+  if (folderId === null) return "Top level";
+  return folderPath(folderId, folders)
+    .map((folder) => folder.name)
+    .join(" / ");
 }
 
 export function folderHierarchy(folders: Folder[]): FolderHierarchyEntry[] {
