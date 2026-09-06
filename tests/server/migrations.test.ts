@@ -27,6 +27,62 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("updates stored X URL labels without changing descriptive citations or article state", () => {
+    const database = new AppDatabase(":memory:");
+    try {
+      const feed = database.feeds.createFeed(1, { feedUrl: "https://x.com/newmichwill/rss" });
+      const canonical = "https://x.com/Ikebillion_/status/2095202646969778335#m";
+      const original = "https://nitter.xitter.cc/Ikebillion_/status/2095202646969778335#m";
+      database.feeds.completeRefresh(feed.id, {
+        httpStatus: 200,
+        etag: null,
+        lastModified: null,
+        parsed: {
+          title: "Michael Egorov / @newmichwill",
+          siteUrl: "https://x.com/newmichwill",
+          articles: [
+            {
+              externalId: "4732",
+              title: "",
+              author: "@newmichwill",
+              url: "https://x.com/newmichwill/status/2095202646969778336#m",
+              publishedAt: null,
+              summary: "Interesting",
+              imageUrl: null,
+              feedContentHtml: `<blockquote><footer><cite><a href="${canonical}">${original}</a></cite></footer></blockquote><a href="${canonical}">source post</a>`,
+            },
+          ],
+        },
+      });
+      const article = database.articles.listArticles(1, { state: "all" })[0];
+      if (!article) throw new Error("Expected the existing X post");
+      database.articles.updateArticleState(1, article.id, { isRead: true, isStarred: true });
+      database.connection
+        .prepare("UPDATE articles SET content_html = feed_content_html WHERE id = ?")
+        .run(article.id);
+      database.connection.prepare("DELETE FROM migrations WHERE version = 44").run();
+
+      migrateDatabase(database.connection, 180);
+
+      const migrated = database.articles.getArticle(1, article.id);
+      expect(migrated).toMatchObject({
+        id: article.id,
+        url: article.url,
+        isRead: true,
+        isStarred: true,
+        summary: "Interesting",
+      });
+      for (const html of [migrated?.feedContentHtml, migrated?.contentHtml]) {
+        const body = articleBody(html ?? "");
+        expect(body.querySelector("cite a")?.textContent).toBe(canonical);
+        expect(body.querySelector("cite a")?.getAttribute("href")).toBe(canonical);
+        expect(body.querySelector("body > a")?.textContent).toBe("source post");
+      }
+    } finally {
+      database.close();
+    }
+  });
+
   it("repairs stored X link thumbnails and article images while preserving saved and read state", () => {
     const database = new AppDatabase(":memory:");
     try {

@@ -73,6 +73,17 @@ export function xContentHtml(html: string | null, instanceUrl: string): string |
         const value = element.getAttribute(attribute);
         if (value) element.setAttribute(attribute, xContentUrl(value, instanceUrl) ?? value);
       }
+      const href = element.getAttribute("href") ?? "";
+      const label = element.textContent?.trim() ?? "";
+      if (
+        element.tagName === "A" &&
+        element.childElementCount === 0 &&
+        (xPostId(href) || xFeedUrl(href)) &&
+        URL.canParse(label) &&
+        xContentUrl(label, label) === href
+      ) {
+        element.textContent = href;
+      }
     }
     return dom.window.document.body.innerHTML;
   } finally {

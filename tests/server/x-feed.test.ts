@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppDatabase } from "../../src/server/database.js";
 import { discoverFeed } from "../../src/server/feed-discovery.js";
 import { FeedRefreshService } from "../../src/server/refresh.js";
-import { fetchXFeed, nitterBaseUrls } from "../../src/server/x-feed.js";
+import { fetchXFeed, nitterBaseUrls, xContentHtml } from "../../src/server/x-feed.js";
 import { xFeedUrl, xVideoPostId } from "../../src/shared/x.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -47,6 +47,39 @@ function rss(origin: string, ids = [POST_ID]): string {
 }
 
 describe("X RSS instances", () => {
+  it("displays canonical X URLs while preserving descriptive labels and unrelated URLs", () => {
+    const original = `https://nitter.xitter.cc/Ikebillion_/status/${POST_ID}#m`;
+    const canonical = `https://x.com/Ikebillion_/status/${POST_ID}#m`;
+    const html = xContentHtml(
+      `<a href="${original}">${original}</a>
+       <a href="${canonical}">${original}</a>
+       <a href="${original}">source post</a>
+       <a href="${original}">@Ikebillion_</a>
+       <a href="https://example.com">https://example.com</a>
+       <a href="${original}">https://example.com/another-page</a>`,
+      "https://nitter.xitter.cc",
+    );
+    const dom = new JSDOM(html ?? "");
+    try {
+      expect(
+        Array.from(dom.window.document.querySelectorAll("a"), (link) => ({
+          href: link.href,
+          text: link.textContent,
+        })),
+      ).toEqual([
+        { href: canonical, text: canonical },
+        { href: canonical, text: canonical },
+        { href: canonical, text: "source post" },
+        { href: canonical, text: "@Ikebillion_" },
+        { href: "https://example.com/", text: "https://example.com" },
+        { href: canonical, text: "https://example.com/another-page" },
+      ]);
+      expect(xContentHtml(html, "https://x.com")).toBe(html);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("loads shared-link thumbnails directly from X with their image format and size", async () => {
     let origin = "";
     origin = await serve((_request, response) =>

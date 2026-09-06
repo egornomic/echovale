@@ -1451,6 +1451,32 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    sql: "",
+    after(database) {
+      const articles = database
+        .prepare(`
+        SELECT id, url, feed_content_html AS feedHtml, content_html AS contentHtml
+        FROM articles WHERE url LIKE 'https://x.com/%'
+      `)
+        .all() as Array<{
+        id: number;
+        url: string;
+        feedHtml: string | null;
+        contentHtml: string | null;
+      }>;
+      const update = database.prepare(`
+        UPDATE articles SET feed_content_html = ?, content_html = ? WHERE id = ?
+      `);
+      for (const article of articles) {
+        const feedHtml = xContentHtml(article.feedHtml, article.url);
+        const contentHtml = xContentHtml(article.contentHtml, article.url);
+        if (feedHtml !== article.feedHtml || contentHtml !== article.contentHtml) {
+          update.run(feedHtml, contentHtml, article.id);
+        }
+      }
+    },
+  },
 ];
 
 export function migrateDatabase(
