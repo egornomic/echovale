@@ -198,16 +198,16 @@ export function createDemoData(now = new Date()): DemoData {
     {
       id: DEMO_RELEASE_ARTICLE_ID,
       feedId: 8,
-      title: "feedfold 0.4.4",
-      url: "https://github.com/egornomic/feedfold/releases/tag/v0.4.4",
+      title: "feedfold 0.5.0",
+      url: "https://github.com/egornomic/feedfold/releases/tag/v0.5.0",
       author: "egornomic",
-      publishedAt: "2026-08-31T18:38:45.000Z",
+      publishedAt: "2026-09-06T07:48:50.000Z",
       summary:
-        "Keep reading as new articles arrive, see quotations consistently, and use feedfold comfortably around iPhone and iPad screen edges.",
+        "Use hosted accounts with passkeys, find preferences in organized settings, and keep X feeds updating with fallback RSS instances.",
       contentHtml: `<ul>
-<li>Newly delivered articles now join the current reading queue without losing your place, including in expanded view.</li>
-<li>Quoted passages now use the same clear treatment across article sources.</li>
-<li>On iPhone and iPad, navigation and controls now stay clear of screen cutouts and the Home indicator.</li>
+<li>Hosted accounts support passkeys, session management, and account deletion.</li>
+<li>Settings are organized into categories so preferences are easier to find.</li>
+<li>Configure fallback RSS instances for X feeds to keep updates arriving when an instance is unavailable.</li>
 </ul>`,
       isStarred: true,
     },

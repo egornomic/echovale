@@ -1,6 +1,6 @@
 {
   "name": "feedfold",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "A quiet, keyboard-first feed reader for the desktop or your own server.",
