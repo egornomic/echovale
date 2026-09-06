@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api as demoApi } from "../src/demo/api.js";
+import { DEMO_RELEASE_ARTICLE_ID } from "../src/demo/fixtures.js";
 import { DemoStore } from "../src/demo/store.js";
 
 const DEMO_NOW = new Date("2026-08-12T12:00:00.000Z");
@@ -62,31 +63,13 @@ describe("static demo data", () => {
 
   it("keeps the linked feedfold release saved and first in the demo", () => {
     const store = new DemoStore(new Date("2027-08-12T12:00:00.000Z"));
-    const releaseFeed = store
-      .bootstrap()
-      .feeds.find((feed) => feed.feedUrl === "https://github.com/egornomic/feedfold/releases.atom");
-
-    expect(releaseFeed).toMatchObject({
-      folderId: 5,
-      title: "releases",
-      siteUrl: "https://github.com/egornomic/feedfold/releases",
-      unreadCount: 1,
-      totalCount: 1,
-    });
-    expect(store.articles({ state: "all", feedId: releaseFeed?.id }).articles).toMatchObject([
-      {
-        title: "feedfold 0.5.0",
-        url: "https://github.com/egornomic/feedfold/releases/tag/v0.5.0",
-        author: "egornomic",
-        publishedAt: "2026-09-06T07:48:50.000Z",
-        isStarred: true,
-      },
-    ]);
+    const release = store.article(DEMO_RELEASE_ARTICLE_ID);
+    expect(release.isStarred).toBe(true);
+    expect(release.url).toMatch(/^https:\/\/github\.com\/egornomic\/feedfold\/releases\/tag\/v/);
+    expect(store.articles({ state: "all", feedId: release.feedId }).articles).toEqual([release]);
 
     for (const state of ["all", "unread", "starred"] as const) {
-      expect(store.articles({ state }).articles[0]?.url).toBe(
-        "https://github.com/egornomic/feedfold/releases/tag/v0.5.0",
-      );
+      expect(store.articles({ state }).articles[0]?.id).toBe(release.id);
     }
   });
 

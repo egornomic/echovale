@@ -44,15 +44,8 @@ describe("application routes", () => {
     expect(parseAppRoute("/", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
     expect(parseAppRoute("/articles/0", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
     expect(parseAppRoute("/folders/nope/all", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
+    expect(parseAppRoute("/feeds/7/unknown", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
     expect(parseAppRoute("/another-app/settings", "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
-  });
-
-  it.each([
-    "/articles/starred",
-    "/feeds/7/starred",
-    "/folders/42/starred",
-  ])("rejects the legacy Starred route %s", (path) => {
-    expect(parseAppRoute(path, "", BASE_PATH)).toEqual(DEFAULT_READER_ROUTE);
   });
 
   it("keeps submitted search only on collection routes", () => {

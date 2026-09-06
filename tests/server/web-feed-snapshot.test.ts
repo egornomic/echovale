@@ -1,5 +1,9 @@
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
+import {
+  parseWebFeedSelectionMessage,
+  webFeedHighlightMessage,
+} from "../../src/client/web-feed-selection.js";
 import { analyzeWebFeedDocument } from "../../src/server/web-feed-dom.js";
 import { createWebFeedSnapshot } from "../../src/server/web-feed-snapshot.js";
 
@@ -38,10 +42,6 @@ describe("web-feed snapshot sanitization", () => {
 
     const html = createWebFeedSnapshot(source.window.document, candidates, token);
 
-    expect(html).toContain("data-feedfold-candidates");
-    expect(html).toContain("feedfold:web-feed-select");
-    expect(html).toContain("feedfold:web-feed-highlight");
-    expect(html).toContain(token);
     expect(html).not.toContain("window.compromised");
     expect(html).not.toContain("/one.jpg");
     expect(html).not.toMatch(/<link\b/i);
@@ -63,11 +63,30 @@ describe("web-feed snapshot sanitization", () => {
     firstSelectable?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(messages.at(-1)).toMatchObject({
-      type: "feedfold:web-feed-select",
-      messageToken: token,
+    const candidateIds = new Set(candidates.map(({ candidate }) => candidate.id));
+    expect(parseWebFeedSelectionMessage(messages.at(-1), token, candidateIds)).toEqual({
+      kind: "select",
       candidateId: candidates[0]?.candidate.id,
     });
+    expect(firstSelectable?.getAttribute("aria-pressed")).toBe("true");
+
+    preview.window.dispatchEvent(new preview.window.KeyboardEvent("keydown", { key: "Escape" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(parseWebFeedSelectionMessage(messages.at(-1), token, candidateIds)).toEqual({
+      kind: "select",
+      candidateId: null,
+    });
+    expect(firstSelectable?.getAttribute("aria-pressed")).toBe("false");
+
+    for (const candidateId of [candidates[0].candidate.id, null]) {
+      preview.window.dispatchEvent(
+        new preview.window.MessageEvent("message", {
+          source: preview.window.parent,
+          data: webFeedHighlightMessage(token, candidateId),
+        }),
+      );
+      expect(firstSelectable?.getAttribute("aria-pressed")).toBe(String(candidateId !== null));
+    }
     preview.window.close();
     source.window.close();
   });
