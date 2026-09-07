@@ -7,9 +7,10 @@ import { parseAndNormalizeFeed } from "./feed-parser.js";
 import { QuotaExceededError } from "./quota.js";
 
 const DEFAULT_NITTER_BASE_URLS: [string, ...string[]] = [
-  "https://nitter.xitter.cc",
+  "https://nitter.net",
   "https://nitter.meowing.monster",
   "https://nitter.jaydenha.uk",
+  "https://nitter.xitter.cc",
 ];
 
 export function nitterBaseUrls(value = process.env.NITTER_BASE_URLS): [string, ...string[]] {

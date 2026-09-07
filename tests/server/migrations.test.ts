@@ -145,6 +145,11 @@ describe("database migrations", () => {
     const database = new AppDatabase(":memory:");
     try {
       const feed = database.feeds.createFeed(1, { feedUrl: "https://nitter.net/person/rss" });
+      database.connection
+        .prepare(
+          "UPDATE feed_sources SET feed_url = ? WHERE id = (SELECT source_id FROM feeds WHERE id = ?)",
+        )
+        .run("https://nitter.net/person/rss", feed.id);
       database.feeds.completeRefresh(feed.id, {
         httpStatus: 200,
         etag: "old-instance-etag",
