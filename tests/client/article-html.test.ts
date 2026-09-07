@@ -84,8 +84,7 @@ describe("article HTML", () => {
           );
         });
       expect(dialog?.hasAttribute("open")).toBe(true);
-      expect(dialog?.textContent).toContain("Detailed diagram");
-      expect(dialog?.textContent).toContain("1 of 2");
+      expect(dialog?.querySelector("img")?.alt).toBe("Detailed diagram");
       expect(dialog?.querySelector<HTMLImageElement>(".image-lightbox-stage img")?.src).toBe(
         "https://images.test/diagram.png",
       );
@@ -93,17 +92,6 @@ describe("article HTML", () => {
         images[0],
       );
       expect(images[0]?.getAttribute("role")).toBe("button");
-      expect(dialog?.querySelector('[aria-label="Fit image to viewer"]')).not.toBeNull();
-      expect(dialog?.querySelectorAll(".image-lightbox-thumbnail")).toHaveLength(2);
-      expect(
-        dialog?.querySelector('.image-lightbox-thumbnail[aria-current="true"]')?.textContent,
-      ).toContain("1");
-
-      const zoomOut = dialog?.querySelector<HTMLButtonElement>('[aria-label="Zoom out"]');
-      const zoomIn = dialog?.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]');
-      const fitImage = dialog?.querySelector<HTMLButtonElement>(
-        '[aria-label="Fit image to viewer"]',
-      );
       const stage = dialog?.querySelector<HTMLDivElement>(".image-lightbox-stage");
       const viewerImage = stage?.querySelector<HTMLImageElement>("img");
       if (!stage || !viewerImage) throw new Error("Lightbox image is missing");
@@ -114,6 +102,7 @@ describe("article HTML", () => {
       Object.defineProperties(viewerImage, {
         naturalWidth: { configurable: true, value: 800 },
         naturalHeight: { configurable: true, value: 600 },
+        getBoundingClientRect: { value: () => ({ width: 800, height: 600 }) },
       });
       await act(async () => {
         viewerImage.dispatchEvent(new dom.window.Event("load", { bubbles: true }));
@@ -131,52 +120,31 @@ describe("article HTML", () => {
         });
         return dispatched;
       };
-      expect(zoomOut?.disabled).toBe(true);
-      expect(await scrollViewer(-100)).toBe(true);
-      expect(dialog?.textContent).not.toContain("100%");
-      expect(await scrollViewer(-100, true)).toBe(false);
-      expect(dialog?.textContent).toContain("100%");
-      expect(viewerImage.style.width).toBe("800px");
-      expect(zoomOut?.disabled).toBe(false);
-      expect(await scrollViewer(-100, true)).toBe(false);
-      expect(dialog?.textContent).toContain("125%");
-      expect(viewerImage.style.width).toBe("1000px");
-      await act(async () => fitImage?.click());
-      expect(dialog?.textContent).not.toContain("%");
+      expect(await scrollViewer(-100)).toBe(false);
+      expect(viewerImage.style.width).toBe("840px");
+      expect(await scrollViewer(-100)).toBe(false);
+      expect(Number.parseFloat(viewerImage.style.width)).toBeCloseTo(880);
+      expect(await scrollViewer(100)).toBe(false);
+      expect(viewerImage.style.width).toBe("840px");
+      await pressViewerKey("0");
       expect(viewerImage.style.width).toBe("");
-      await act(async () => zoomIn?.click());
-      expect(dialog?.textContent).toContain("100%");
-      expect(viewerImage.style.width).toBe("800px");
-      await act(async () => fitImage?.click());
-      expect(await scrollViewer(-100, true)).toBe(false);
-      expect(dialog?.textContent).toContain("100%");
+      await pressViewerKey("+");
+      expect(viewerImage.style.width).toBe("840px");
+      await pressViewerKey("-");
       expect(viewerImage.style.width).toBe("800px");
       expect(await scrollViewer(100, true)).toBe(false);
-      expect(dialog?.textContent).not.toContain("%");
-      expect(zoomOut?.disabled).toBe(true);
-      await act(async () => zoomIn?.click());
-      expect(dialog?.textContent).toContain("100%");
-      await act(async () => zoomOut?.click());
-      expect(dialog?.textContent).not.toContain("%");
-      expect(zoomOut?.disabled).toBe(true);
+      expect(viewerImage.style.width).toBe("760px");
+      await act(async () => viewerImage.click());
+      expect(dialog?.open).toBe(true);
 
       await pressViewerKey("ArrowRight");
-      expect(dialog?.textContent).toContain("Chart");
-      expect(dialog?.textContent).toContain("2 of 2");
-      expect(articleNavigationCount).toBe(0);
-      expect(dialog?.querySelector<HTMLAnchorElement>("a")?.href).toBe(
-        "https://images.test/chart.png",
-      );
+      expect(dialog?.querySelector("img")?.alt).toBe("Chart");
+      expect(dialog?.querySelector("img")?.style.width).toBe("");
       await pressViewerKey("k");
-      expect(dialog?.textContent).toContain("Detailed diagram");
-      expect(dialog?.textContent).toContain("1 of 2");
+      expect(dialog?.querySelector("img")?.alt).toBe("Detailed diagram");
       await pressViewerKey("j");
-      expect(dialog?.textContent).toContain("Chart");
-      expect(dialog?.textContent).toContain("2 of 2");
+      expect(dialog?.querySelector("img")?.alt).toBe("Chart");
       expect(articleNavigationCount).toBe(0);
-      expect(dialog?.querySelectorAll("a")).toHaveLength(1);
-      expect(dialog?.textContent).toContain("Open original");
-      expect(dialog?.textContent).not.toContain("Open link");
 
       await act(async () => {
         dialog
@@ -191,6 +159,23 @@ describe("article HTML", () => {
       expect(container.querySelector("dialog.image-lightbox")).toBeNull();
       expect(articleEscapeCount).toBe(0);
       expect(dom.window.document.activeElement).toBe(images[0]);
+
+      for (const closeWith of ["button", "background"]) {
+        await act(async () => images[1]?.click());
+        const reopened = container.querySelector<HTMLDialogElement>("dialog.image-lightbox");
+        expect(reopened?.querySelector("img")?.alt).toBe("Chart");
+        await act(async () => {
+          reopened
+            ?.querySelector<HTMLElement>(
+              closeWith === "button"
+                ? '[aria-label="Close image viewer"]'
+                : ".image-lightbox-stage",
+            )
+            ?.click();
+        });
+        expect(container.querySelector("dialog.image-lightbox")).toBeNull();
+        expect(dom.window.document.activeElement).toBe(images[1]?.closest("a"));
+      }
 
       await act(async () => {
         images[2]?.dispatchEvent(
