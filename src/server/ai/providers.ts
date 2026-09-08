@@ -18,19 +18,8 @@ function tokenCount(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function geminiInvalidKey(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const error = (value as Record<string, unknown>).error;
-  if (!error || typeof error !== "object" || Array.isArray(error)) return false;
-  const details = error as Record<string, unknown>;
-  return (
-    details.status === "INVALID_ARGUMENT" &&
-    typeof details.message === "string" &&
-    details.message.includes("API key not valid")
-  );
-}
-
 function providerError(provider: string, status: number, body: unknown): AiError {
+  const details = record(record(body)?.error);
   if (status === 401) {
     return new AiError(
       "AI_KEY_REJECTED",
@@ -38,11 +27,29 @@ function providerError(provider: string, status: number, body: unknown): AiError
       `${provider} rejected the saved API key. Update it in Settings.`,
     );
   }
-  if (provider === "Google Gemini" && status === 400 && geminiInvalidKey(body)) {
+  if (
+    provider === "Google Gemini" &&
+    status === 400 &&
+    details?.status === "INVALID_ARGUMENT" &&
+    typeof details.message === "string" &&
+    details.message.includes("API key not valid")
+  ) {
     return new AiError(
       "AI_KEY_REJECTED",
       502,
       `${provider} rejected the saved API key. Update it in Settings.`,
+    );
+  }
+  if (
+    provider === "Google Gemini" &&
+    status === 400 &&
+    details?.status === "FAILED_PRECONDITION" &&
+    details.message === "User location is not supported for the API use."
+  ) {
+    return new AiError(
+      "AI_REGION_UNSUPPORTED",
+      422,
+      "Google Gemini does not support the network location used by feedfold. Check the network or VPN on the device running feedfold, or choose another AI provider in Settings.",
     );
   }
   if (status === 429) {
