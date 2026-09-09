@@ -396,7 +396,7 @@ describe("AI article summaries", () => {
       ],
       generationConfig: {
         maxOutputTokens: 8_192,
-        thinkingConfig: { thinkingLevel: "medium" },
+        thinkingConfig: { thinkingLevel: "low" },
       },
     });
     expect(JSON.stringify(requests[0])).not.toContain("feed description must not be summarized");
@@ -555,7 +555,7 @@ describe("AI article summaries", () => {
       tools: [{ google_search: {} }],
       generationConfig: {
         maxOutputTokens: 8_192,
-        thinkingConfig: { thinkingLevel: "medium" },
+        thinkingConfig: { thinkingLevel: "low" },
       },
     });
     expect(database.articles.getArticle(readerId, articleId)?.aiSummary).toBeNull();
@@ -570,7 +570,7 @@ describe("AI article summaries", () => {
     expect(requests[2]).toMatchObject({
       generationConfig: {
         maxOutputTokens: 8_192,
-        thinkingConfig: { thinkingLevel: "medium" },
+        thinkingConfig: { thinkingLevel: "low" },
       },
     });
     expect(database.articles.getArticle(readerId, articleId)?.aiSummary?.text).toBe(

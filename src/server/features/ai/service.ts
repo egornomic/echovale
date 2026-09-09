@@ -35,6 +35,7 @@ import type { AppDatabase } from "../../database.js";
 import type { StoredArticleAiSummary, StoredArticleAiTranslation } from "../shared.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+const VIDEO_REQUEST_TIMEOUT_MS = 240_000;
 
 function promptVersion(prompt: string, defaultPrompt: string, defaultVersion: number): number {
   if (prompt === defaultPrompt) return defaultVersion;
@@ -95,7 +96,6 @@ function publicTranslation(translation: StoredArticleAiTranslation): ArticleAiTr
 export class AiService {
   private readonly providers: ReadonlyMap<AiProvider, AiProviderAdapter>;
   private readonly currentDate: () => Date;
-  private readonly requestTimeoutMs: number;
   private readonly summariesInFlight = new Map<string, Promise<ArticleAiSummary | null>>();
   private readonly translationsInFlight = new Map<string, Promise<ArticleAiTranslation | null>>();
 
@@ -105,7 +105,6 @@ export class AiService {
   ) {
     this.providers = options.providers ?? createAiProviders();
     this.currentDate = options.currentDate ?? (() => new Date());
-    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
   getSettings(userId: number): AiSettings {
@@ -211,7 +210,10 @@ export class AiService {
         apiKey: cipher.decrypt(userId, providerId, encryptedKey),
         model,
         ...request,
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(
+          this.options.requestTimeoutMs ??
+            (request.videoUrl ? VIDEO_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS),
+        ),
       }),
     );
     return { ...result, provider: providerId, model };
