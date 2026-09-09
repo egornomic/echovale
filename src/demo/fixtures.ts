@@ -198,16 +198,17 @@ export function createDemoData(now = new Date()): DemoData {
     {
       id: DEMO_RELEASE_ARTICLE_ID,
       feedId: 8,
-      title: "feedfold 0.5.0",
-      url: "https://github.com/egornomic/feedfold/releases/tag/v0.5.0",
+      title: "feedfold 0.6.0",
+      url: "https://github.com/egornomic/feedfold/releases/tag/v0.6.0",
       author: "egornomic",
-      publishedAt: "2026-09-06T07:48:50.000Z",
+      publishedAt: "2026-09-09T10:00:00.000Z",
       summary:
-        "Use hosted accounts with passkeys, find preferences in organized settings, and keep X feeds updating with fallback RSS instances.",
+        "Enjoy simpler article image previews, follow feedfold updates automatically with new accounts, and keep your reading state in sync.",
       contentHtml: `<ul>
-<li>Hosted accounts support passkeys, session management, and account deletion.</li>
-<li>Settings are organized into categories so preferences are easier to find.</li>
-<li>Configure fallback RSS instances for X feeds to keep updates arriving when an instance is unavailable.</li>
+<li>Article image previews are simpler, with restored thumbnails for links shared on X.</li>
+<li>New accounts automatically follow the feedfold release feed.</li>
+<li>Unread counts and reading state stay in sync as feeds update in the background.</li>
+<li>Gemini summaries are more reliable, with clearer messages when regional restrictions apply.</li>
 </ul>`,
       isStarred: true,
     },
