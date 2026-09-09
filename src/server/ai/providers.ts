@@ -289,7 +289,8 @@ function geminiAdapter(baseUrl: string): AiProviderAdapter {
           systemInstruction: { parts: [{ text: request.system }] },
           contents: [{ role: "user", parts: requestParts }],
           generationConfig: {
-            maxOutputTokens: request.maxOutputTokens,
+            // Gemini counts reasoning against the output budget, too.
+            maxOutputTokens: Math.max(request.maxOutputTokens, 8_192),
             thinkingConfig: { thinkingLevel: "medium" },
           },
           ...(request.webSearch ? { tools: [{ google_search: {} }] } : {}),

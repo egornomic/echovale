@@ -395,7 +395,7 @@ describe("AI article summaries", () => {
         },
       ],
       generationConfig: {
-        maxOutputTokens: 900,
+        maxOutputTokens: 8_192,
         thinkingConfig: { thinkingLevel: "medium" },
       },
     });
@@ -554,7 +554,7 @@ describe("AI article summaries", () => {
     expect(requests[0]).toMatchObject({
       tools: [{ google_search: {} }],
       generationConfig: {
-        maxOutputTokens: 4_096,
+        maxOutputTokens: 8_192,
         thinkingConfig: { thinkingLevel: "medium" },
       },
     });
@@ -569,7 +569,7 @@ describe("AI article summaries", () => {
     expect(requests[2]).not.toHaveProperty("tools");
     expect(requests[2]).toMatchObject({
       generationConfig: {
-        maxOutputTokens: 900,
+        maxOutputTokens: 8_192,
         thinkingConfig: { thinkingLevel: "medium" },
       },
     });
